@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .env
 config.yaml
+system/schedule.json
+system/question-bank-upstream.md

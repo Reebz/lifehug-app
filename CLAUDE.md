@@ -74,23 +74,47 @@ channel: "telegram"  # or whatsapp, signal, discord, etc.
 
 ### Step 8: Set up daily delivery
 Help the user configure a daily cron job or scheduled task that:
-1. Runs `python3 system/ask.py` to pick the next question
-2. Sends it to the user via their configured channel
-3. The question should be delivered warmly, not robotically
+1. Checks for Lifehug updates (`python3 system/update.py --check`)
+2. Runs `python3 system/ask.py` to pick the next question
+3. Sends it to the user via their configured channel
+4. The question should be delivered warmly, not robotically
 
-For **OpenClaw**, create a cron job:
+**For OpenClaw:** Create/update `openclaw.json` cron entry:
+```json
+{
+  "cron": {
+    "lifehug-daily": {
+      "cron": "0 9 * * *",
+      "timezone": "America/Chicago",
+      "sessionTarget": "isolated",
+      "payload": {
+        "kind": "system-event",
+        "text": "Run the Lifehug daily routine: check for updates with `python3 system/update.py --check`, then pick and deliver the next question with `python3 system/ask.py`. If an update is available, mention it briefly after the question."
+      },
+      "deliver": {
+        "mode": "announce",
+        "channel": "telegram",
+        "to": "<user-channel-id>"
+      }
+    }
+  }
+}
 ```
-openclaw cron add \
-  --name "Lifehug Daily Question" \
-  --cron "0 9 * * *" \
-  --tz "America/New_York" \
-  --task "Run the Lifehug daily question: cd /path/to/lifehug && python3 system/ask.py — then send the question warmly to the user on their channel." \
-  --announce --channel telegram
+
+Adjust the cron expression based on the user's frequency and time preferences:
+- Daily: `0 9 * * *` (at their chosen hour)
+- Every other day: `0 9 */2 * *`
+- Weekdays only: `0 9 * * 1-5`
+
+Adjust the timezone, channel, and `to` field to match their config.yaml.
+
+**For Claude Code or other platforms:** Print a crontab entry the user can install:
+```
+# Lifehug daily question (adjust path)
+0 9 * * * cd /path/to/lifehug && python3 system/ask.py && python3 system/update.py --check --quiet
 ```
 
-Adjust the time, timezone, path, and channel to match their config.yaml.
-
-For **other platforms**, help them set up whatever scheduler is available (cron, systemd timer, Task Scheduler, etc.).
+For other schedulers (systemd timer, Task Scheduler, etc.), help them set up the equivalent.
 
 ### Step 9: Ask the first question
 Pick the first question and ask it. The system is now running.
@@ -359,3 +383,39 @@ The daily question cron job handles outbound delivery. For inbound (receiving an
 - **Category reaches GREEN**: Offer to draft a chapter or essay
 - **Spotlight ready**: Offer to draft a deliverable (letter, profile, story)
 - **Full pass complete**: Summary of what was captured, what's next
+
+---
+
+## Update Check
+
+At the start of each session, run `python3 system/update.py --check --quiet`. If the exit code is 1 (update available), mention it briefly:
+
+> "Lifehug v{N} is available. Say **update lifehug** when you're ready."
+
+If the exit code is 0 (current), say nothing about updates.
+
+---
+
+## Update Command
+
+When the user says "update lifehug", "update life hug", or similar:
+
+1. Run `python3 system/update.py --check` to show what's available
+2. If an update exists, run `python3 system/update.py --apply`
+3. Report what was updated and any changelog notes
+4. If the update saved a `system/question-bank-upstream.md`, check if it contains new starter questions not in the user's `system/question-bank.md` and offer to merge them
+
+If the user wants to rollback: `python3 system/update.py --rollback`
+
+---
+
+## Version & Framework Files
+
+Lifehug tracks its version in `system/version.json`. Framework files (listed there) are maintained by the Lifehug project and can be updated automatically. User data files are never touched by updates:
+
+**Framework files** (updated automatically):
+- `CLAUDE.md`, `system/ask.py`, `system/update.py`, `system/version.json`, `system/research.md`, `README.md`, `.gitignore`
+
+**User data** (never touched):
+- `system/question-bank.md`, `system/rotation.json`, `system/coverage.json`, `system/schedule.json`
+- `answers/`, `drafts/`
