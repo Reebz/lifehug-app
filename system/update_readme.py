@@ -112,19 +112,26 @@ def update_category_bullets(readme, coverage, categories):
         total = data.get("total", 0)
         emoji = status_emoji(answered, total)
         name_to_progress[name] = (emoji, answered, total)
+        # Also index without "Spotlight — " prefix for README matching
+        if name.startswith("Spotlight — "):
+            short_name = name[len("Spotlight — "):]
+            name_to_progress[short_name] = (emoji, answered, total)
 
-    # Match lines like: - 🔴 Origins (2/10)  or  - 🟡 The Problem (1/3)
+    # Match category bullets like: - 🔴 Origins (2/10)
     bullet_pattern = re.compile(
-        r'^(- )[🔴🟡🟢⚪] (.+?) \(\d+/\d+\)$',
+        r'^(- )[🔴🟡🟢⚪] (.+?) \(\d+/\d+\)(.*)$',
         re.MULTILINE
     )
 
     def replace_bullet(m):
         prefix = m.group(1)
         name = m.group(2)
-        if name in name_to_progress:
-            emoji, answered, total = name_to_progress[name]
-            return f"{prefix}{emoji} {name} ({answered}/{total})"
+        suffix = m.group(3)  # preserve trailing text (e.g. spotlight descriptions)
+        # Strip bold markers for lookup
+        lookup = name.replace("**", "")
+        if lookup in name_to_progress:
+            emoji, answered, total = name_to_progress[lookup]
+            return f"{prefix}{emoji} {name} ({answered}/{total}){suffix}"
         return m.group(0)
 
     return bullet_pattern.sub(replace_bullet, readme)
