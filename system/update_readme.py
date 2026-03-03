@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Lifehug — README Progress Updater
 
-Refreshes the Coverage section in README.md with current progress from coverage.json.
-Also updates project category indicators inline.
+Refreshes per-category progress bullets and the Coverage summary in README.md
+using current data from coverage.json and question-bank.md.
 
 Usage:
     python3 system/update_readme.py           # Update README.md in place
@@ -38,16 +38,7 @@ def parse_categories_from_bank():
     categories = {}
     header_pattern = re.compile(r'^## ([A-Z]): (.+?)(?:\s*\(.*\))?\s*$', re.MULTILINE)
 
-    group = "main"
     for line in md.splitlines():
-        stripped = line.strip().lower()
-        if stripped.startswith("## spotlight"):
-            group = "spotlight"
-            continue
-        elif stripped.startswith("## project"):
-            group = "project"
-            continue
-
         match = header_pattern.match(line)
         if match:
             cat_id = match.group(1)
@@ -99,26 +90,67 @@ def build_coverage_line(coverage, categories):
     return " · ".join(parts)
 
 
-def build_category_progress(coverage, categories):
-    """Build per-category progress strings grouped by type."""
-    if not coverage or "categories" not in coverage:
-        return {}
+def update_category_bullets(readme, coverage, categories):
+    """Update category progress bullets (e.g. '- 🔴 Origins (2/10)') in place.
 
-    progress = {}
-    for cat_id in sorted(coverage["categories"].keys()):
-        data = coverage["categories"][cat_id]
+    Matches lines like:
+      - 🔴 Origins (2/10)
+      - 🟡 The Problem (1/3)
+      - 🟢 Becoming (5/7)
+
+    Updates the emoji and counts based on current coverage data.
+    """
+    if not coverage or "categories" not in coverage:
+        return readme
+
+    # Build a lookup: category name → (emoji, answered, total)
+    name_to_progress = {}
+    for cat_id, data in coverage["categories"].items():
+        cat_info = categories.get(cat_id, {})
+        name = cat_info.get("name", cat_id)
         answered = data.get("answered", 0)
         total = data.get("total", 0)
         emoji = status_emoji(answered, total)
-        cat_info = categories.get(cat_id, {})
-        name = cat_info.get("name", cat_id)
-        progress[cat_id] = f"{emoji} {name} ({answered}/{total})"
+        name_to_progress[name] = (emoji, answered, total)
 
-    return progress
+    # Match lines like: - 🔴 Origins (2/10)  or  - 🟡 The Problem (1/3)
+    bullet_pattern = re.compile(
+        r'^(- )[🔴🟡🟢⚪] (.+?) \(\d+/\d+\)$',
+        re.MULTILINE
+    )
+
+    def replace_bullet(m):
+        prefix = m.group(1)
+        name = m.group(2)
+        if name in name_to_progress:
+            emoji, answered, total = name_to_progress[name]
+            return f"{prefix}{emoji} {name} ({answered}/{total})"
+        return m.group(0)
+
+    return bullet_pattern.sub(replace_bullet, readme)
+
+
+def update_coverage_section(readme, coverage_line):
+    """Update or insert the ## Coverage section."""
+    coverage_pattern = re.compile(
+        r'(## Coverage\n).*?(?=\n## |\n---|\Z)',
+        re.DOTALL
+    )
+
+    new_section = f"## Coverage\n{coverage_line}\n"
+
+    if coverage_pattern.search(readme):
+        return coverage_pattern.sub(new_section, readme)
+    else:
+        final_rule = readme.rfind("\n---\n")
+        if final_rule >= 0:
+            return readme[:final_rule] + f"\n{new_section}" + readme[final_rule:]
+        else:
+            return readme + f"\n{new_section}"
 
 
 def update_readme(dry_run=False):
-    """Update the Coverage section in README.md."""
+    """Update README.md with current progress."""
     if not README_FILE.exists():
         print("No README.md found. Nothing to update.")
         return False
@@ -137,32 +169,26 @@ def update_readme(dry_run=False):
         print("No coverage data to update.")
         return False
 
-    # Update or insert Coverage section
-    # Look for existing ## Coverage section and replace its content
-    coverage_pattern = re.compile(
-        r'(## Coverage\n).*?(?=\n## |\n---|\Z)',
-        re.DOTALL
-    )
+    # Update per-category bullets
+    new_readme = update_category_bullets(readme, coverage, categories)
 
-    new_coverage_section = f"## Coverage\n{coverage_line}\n"
-
-    if coverage_pattern.search(readme):
-        new_readme = coverage_pattern.sub(new_coverage_section, readme)
-    else:
-        # Insert before the final --- or at the end
-        final_rule = readme.rfind("\n---\n")
-        if final_rule >= 0:
-            new_readme = readme[:final_rule] + f"\n{new_coverage_section}" + readme[final_rule:]
-        else:
-            new_readme = readme + f"\n{new_coverage_section}"
+    # Update coverage summary
+    new_readme = update_coverage_section(new_readme, coverage_line)
 
     if new_readme == readme:
         print("README.md already up to date.")
         return False
 
     if dry_run:
-        print("Would update Coverage section to:")
-        print(f"  {coverage_line}")
+        print("Changes:")
+        # Show diff
+        old_lines = readme.splitlines()
+        new_lines = new_readme.splitlines()
+        for i, (old, new) in enumerate(zip(old_lines, new_lines)):
+            if old != new:
+                print(f"  - {old}")
+                print(f"  + {new}")
+        print(f"\nCoverage: {coverage_line}")
         return True
 
     README_FILE.write_text(new_readme)
