@@ -83,7 +83,11 @@ Interim deliverables (essays, letters) can ship before the full book is complete
    git clone https://github.com/lifehug/lifehug.git ~/Workspace/lifehug
    cd ~/Workspace/lifehug && ./setup.sh
    ```
-   This checks your environment, installs the Lifehug skill, and tells you what to do next.
+   Setup checks your environment, installs the Lifehug skill, and configures git remotes:
+   - **upstream** → `lifehug/lifehug` (for receiving framework updates)
+   - **origin** → your own repo (for saving your answers and progress)
+   
+   If you don't have a repo yet, no problem — skip it and set one up later. Your work saves locally via git commits. When you're ready: `git remote add origin <your-repo-url> && git push -u origin main`
 
 2. **Tell your AI to set you up.** In your OpenClaw chat (Telegram, WhatsApp, Signal, Discord — whatever you use), say:
    ```
@@ -95,15 +99,15 @@ Interim deliverables (essays, letters) can ship before the full book is complete
    - Who are the important people in your story?
    - What episodes do you already know you want to capture?
 
-4. **It creates your custom question bank** and sets up a daily cron job to send you one question per day on your preferred channel.
+4. **It creates your custom question bank**, generates a personalized README for your repo, and sets up a daily cron job to send you one question per day on your preferred channel.
 
-5. **Answer one question per day** — just reply in the same chat, voice or text. The Lifehug skill automatically detects your answer, processes it, generates follow-ups, and tracks your progress.
+5. **Answer one question per day** — just reply in the same chat, voice or text. The Lifehug skill automatically detects your answer, processes it, generates follow-ups, updates your README progress, and pushes to git.
 
 That's it. The system handles rotation, coverage tracking, follow-up generation, and deliverable drafting.
 
 ### With Other AI Tools
 
-1. **Clone this repo**
+1. **Clone this repo** and run `./setup.sh`
 2. **Open it with your AI assistant** (Claude Code, Cursor, or any AI that reads CLAUDE.md)
 3. **The AI will guide you through setup** — same flow as above
 4. **Set up your own daily delivery** — the AI will help you configure a scheduler for daily questions

@@ -128,7 +128,20 @@ Adjust the timezone, channel, and `to` field to match their config.yaml.
 
 For other schedulers (systemd timer, Task Scheduler, etc.), help them set up the equivalent.
 
-### Step 10: Ask the first question
+### Step 10: Verify git remotes
+Check that git remotes are set up correctly (`setup.sh` usually handles this):
+- `upstream` should point to `lifehug/lifehug` (for framework updates)
+- `origin` should point to the user's own repo (for saving their data)
+
+If `origin` still points to `lifehug/lifehug`, rename it to `upstream` and ask the user for their repo URL. If they don't have one yet, that's fine — let them know they can set it up later and their work will save locally via commits.
+
+```bash
+git remote rename origin upstream
+git remote add origin <their-repo-url>  # when ready
+git push -u origin main
+```
+
+### Step 11: Ask the first question
 Pick the first question and ask it. The system is now running.
 
 ---
