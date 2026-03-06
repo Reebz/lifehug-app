@@ -10,6 +10,7 @@
 		00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */; };
 		0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2FC2AA88E660C6579714592 /* ModelState.swift */; };
 		1436E589C929D07F208CBE0D /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8E6D09AB13C9D9FC0B410D /* STTService.swift */; };
+		15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */ = {isa = PBXBuildFile; fileRef = E1483A254576AD113904B103 /* question-bank.md */; };
 		1F5491890ABC0F0937A4DAEF /* VoicePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC9FBF03F19F2F8942ACD58E /* VoicePipeline.swift */; };
 		2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */; };
 		386C56613644FB974AE75D35 /* RotationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */; };
@@ -33,6 +34,7 @@
 		C2C3F614DA1FE951F6C8F508 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9F37BD58C0B5DF578DC12D /* SettingsView.swift */; };
 		C324FE40569DA679E7EC6B9D /* LaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22019C30A342365334B8F87A /* LaunchView.swift */; };
 		CF5B3DF5157BD3FD0B0A0181 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAABB9577BF1FF3D9BE51A49 /* ConversationView.swift */; };
+		D10E751FFEA6C7E648C077BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */; };
 		DF1813C3C1EA9C8E4FA9BF71 /* DailyQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230BC9CDA761A04DD75E61 /* DailyQuestionView.swift */; };
 		E5FE6BC7CE0608BFCEA0637E /* RotationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */; };
 		F62B165C171836E083EC79DB /* CoverageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16C46CA09C84C8C3A63FF0F /* CoverageView.swift */; };
@@ -82,6 +84,8 @@
 		DB777411766BFD0D14672BA0 /* Answer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Answer.swift; sourceTree = "<group>"; };
 		DC9FBF03F19F2F8942ACD58E /* VoicePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePipeline.swift; sourceTree = "<group>"; };
 		DE30891D1823713F4F65B0D8 /* AnswersBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswersBrowserView.swift; sourceTree = "<group>"; };
+		E1483A254576AD113904B103 /* question-bank.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "question-bank.md"; sourceTree = "<group>"; };
+		EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EAABB9577BF1FF3D9BE51A49 /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
 		EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationState.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -132,6 +136,7 @@
 				9AD41637D83D39BDB5CCF433 /* App */,
 				DC64EC3F994A2E28D049B6C5 /* Models */,
 				CCEA2C0BF6145B77A30389FF /* Pipeline */,
+				FD04E6DE0F7ADF0025943E83 /* Resources */,
 				4387435FFCF64E5F3FBB7539 /* Services */,
 				E2722BAC3DD65B6B303E6CD5 /* Views */,
 			);
@@ -202,6 +207,15 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		FD04E6DE0F7ADF0025943E83 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */,
+				E1483A254576AD113904B103 /* question-bank.md */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -253,6 +267,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					4EE37FC49107B581C6B2909E = {
+						DevelopmentTeam = PJHS9XQS6H;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 3D710A9ECDFD4236EFC72941 /* Build configuration list for PBXProject "Lifehug" */;
@@ -283,7 +301,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D10E751FFEA6C7E648C077BD /* Assets.xcassets in Resources */,
 				2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */,
+				15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -474,7 +494,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehugapp.ios.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lifehug.app/Lifehug";
@@ -491,7 +511,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehugapp.ios.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lifehug.app/Lifehug";
@@ -504,7 +524,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -512,7 +534,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehugapp.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -524,7 +546,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -532,7 +556,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehugapp.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
