@@ -32,6 +32,24 @@ final class STTService {
         isAuthorized = true
         return
         #else
+        // Request microphone permission first
+        let micGranted: Bool
+        if #available(iOS 17, *) {
+            micGranted = await AVAudioApplication.requestRecordPermission()
+        } else {
+            micGranted = await withCheckedContinuation { continuation in
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        }
+        guard micGranted else {
+            error = "Microphone access not authorized. Please enable in Settings."
+            isAuthorized = false
+            return
+        }
+
+        // Then request speech recognition permission
         let status = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
@@ -93,6 +111,8 @@ final class STTService {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
         isRecording = false
     }
 
@@ -105,7 +125,7 @@ final class STTService {
         recognitionTask = nil
 
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+        try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
         let engine = AVAudioEngine()
@@ -118,6 +138,11 @@ final class STTService {
 
         let inputNode = engine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+        // Guard against invalid audio format (0 channels = no mic access)
+        guard recordingFormat.channelCount > 0 else {
+            throw STTError.microphoneUnavailable
+        }
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             request.append(buffer)
@@ -185,6 +210,7 @@ final class STTService {
 enum STTError: Error, LocalizedError {
     case recognizerUnavailable
     case notAuthorized
+    case microphoneUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -192,6 +218,8 @@ enum STTError: Error, LocalizedError {
             return "Speech recognition is not available on this device"
         case .notAuthorized:
             return "Speech recognition access not authorized"
+        case .microphoneUnavailable:
+            return "Microphone is not available. Please check permissions in Settings."
         }
     }
 }

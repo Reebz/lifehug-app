@@ -233,10 +233,18 @@ struct DailyQuestionView: View {
             }
             guard sttService.isAuthorized else {
                 session.isRecording = false
+                loadError = sttService.error ?? "Microphone or speech recognition not authorized."
                 return
             }
 
             let stream = sttService.startListening()
+
+            // Check if STT hit an error during startup
+            if let sttError = sttService.error {
+                session.isRecording = false
+                loadError = sttError
+                return
+            }
             for await transcript in stream {
                 guard !Task.isCancelled else { return }
                 session.draftTranscript = transcript
