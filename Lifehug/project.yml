@@ -28,8 +28,9 @@ targets:
       - path: Lifehug
         excludes:
           - "**/*.md"
-    resources:
       - path: Lifehug/Resources/question-bank.md
+        type: file
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
