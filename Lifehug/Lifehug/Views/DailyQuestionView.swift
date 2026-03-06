@@ -14,17 +14,10 @@ struct DailyQuestionView: View {
     @State private var navigateToConversation: Bool = false
     @State private var loadError: String?
 
-    // Design tokens
-    private let cream = Color(hex: 0xFBF8F3)
-    private let warmCharcoal = Color(hex: 0x2C2420)
-    private let warmGray = Color(hex: 0x6B5E54)
-    private let terracotta = Color(hex: 0xC67B5C)
-    private let softCoral = Color(hex: 0xE8856C)
-
     var body: some View {
         NavigationStack {
             ZStack {
-                cream.ignoresSafeArea()
+                Theme.cream.ignoresSafeArea()
 
                 VStack(spacing: 32) {
                     Spacer()
@@ -43,7 +36,7 @@ struct DailyQuestionView: View {
 
                     Spacer()
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, Theme.horizontalPadding)
             }
             .navigationDestination(isPresented: $navigateToConversation) {
                 ConversationView(
@@ -66,9 +59,8 @@ struct DailyQuestionView: View {
         if let question = session.currentQuestion {
             VStack(spacing: 12) {
                 Text(question.text)
-                    .font(.title2)
-                    .fontDesign(.serif)
-                    .foregroundStyle(warmCharcoal)
+                    .font(Theme.title2Font)
+                    .foregroundStyle(Theme.warmCharcoal)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
 
@@ -76,23 +68,23 @@ struct DailyQuestionView: View {
                     Text("\(String(question.category)): \(cat.name)")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundStyle(warmGray)
+                        .foregroundStyle(Theme.warmGray)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(warmGray.opacity(0.1))
+                                .fill(Theme.warmGray.opacity(0.1))
                         )
                 }
             }
         } else if let error = loadError {
             Text(error)
-                .font(.body)
-                .foregroundStyle(warmGray)
+                .font(Theme.bodySerifFont)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
         } else {
             ProgressView()
-                .tint(terracotta)
+                .tint(Theme.terracotta)
         }
     }
 
@@ -108,10 +100,10 @@ struct DailyQuestionView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(session.isRecording ? softCoral : terracotta)
+                    .fill(session.isRecording ? Theme.softCoral : Theme.terracotta)
                     .frame(width: 80, height: 80)
                     .shadow(
-                        color: (session.isRecording ? softCoral : terracotta).opacity(0.3),
+                        color: (session.isRecording ? Theme.softCoral : Theme.terracotta).opacity(0.3),
                         radius: session.isRecording ? 16 : 8,
                         y: 4
                     )
@@ -142,18 +134,18 @@ struct DailyQuestionView: View {
                 if session.isRecording {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(softCoral)
+                            .fill(Theme.softCoral)
                             .frame(width: 8, height: 8)
                         Text("Listening...")
                             .font(.caption)
-                            .foregroundStyle(warmGray)
+                            .foregroundStyle(Theme.warmGray)
                     }
                 }
 
                 if !session.draftTranscript.isEmpty {
                     Text(session.draftTranscript)
-                        .font(.body)
-                        .foregroundStyle(warmCharcoal.opacity(0.8))
+                        .font(Theme.bodySerifFont)
+                        .foregroundStyle(Theme.warmCharcoal.opacity(0.8))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
                         .transition(.opacity)
@@ -173,7 +165,7 @@ struct DailyQuestionView: View {
         } label: {
             Text("Type instead")
                 .font(.subheadline)
-                .foregroundStyle(warmGray)
+                .foregroundStyle(Theme.warmGray)
         }
         .buttonStyle(.plain)
         .disabled(session.currentQuestion == nil)
@@ -185,11 +177,11 @@ struct DailyQuestionView: View {
                 .lineLimit(3...6)
                 .padding(16)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.white)
-                        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+                    RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                        .fill(Theme.cardBackground)
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 2)
                 )
-                .foregroundStyle(warmCharcoal)
+                .foregroundStyle(Theme.warmCharcoal)
 
             HStack(spacing: 16) {
                 Button("Cancel") {
@@ -199,7 +191,7 @@ struct DailyQuestionView: View {
                     }
                 }
                 .font(.subheadline)
-                .foregroundStyle(warmGray)
+                .foregroundStyle(Theme.warmGray)
 
                 Button {
                     submitTypedAnswer()
@@ -211,7 +203,7 @@ struct DailyQuestionView: View {
                         .padding(.vertical, 10)
                         .background(
                             Capsule()
-                                .fill(terracotta)
+                                .fill(Theme.terracotta)
                         )
                 }
                 .disabled(typedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -245,6 +237,7 @@ struct DailyQuestionView: View {
                 loadError = sttError
                 return
             }
+
             for await transcript in stream {
                 guard !Task.isCancelled else { return }
                 session.draftTranscript = transcript
@@ -252,7 +245,6 @@ struct DailyQuestionView: View {
 
             guard !Task.isCancelled else { return }
 
-            // Stream finished (silence detected or finalized)
             session.isRecording = false
             let text = session.draftTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
@@ -296,7 +288,6 @@ struct DailyQuestionView: View {
     }
 
     private func pickTodayQuestion() {
-        // If we already picked a question for today, keep it
         if let current = session.currentQuestion, !current.answered {
             return
         }
@@ -324,20 +315,6 @@ struct DailyQuestionView: View {
         }
 
         navigateToConversation = true
-    }
-}
-
-// MARK: - Color Extension
-
-extension Color {
-    init(hex: UInt, opacity: Double = 1.0) {
-        self.init(
-            .sRGB,
-            red: Double((hex >> 16) & 0xFF) / 255.0,
-            green: Double((hex >> 8) & 0xFF) / 255.0,
-            blue: Double(hex & 0xFF) / 255.0,
-            opacity: opacity
-        )
     }
 }
 

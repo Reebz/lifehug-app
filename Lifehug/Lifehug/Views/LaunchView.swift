@@ -4,14 +4,9 @@ struct LaunchView: View {
     @Environment(ModelState.self) private var modelState
     @Environment(AppState.self) private var appState
 
-    // Design tokens
-    private let creamBackground = Color(hex: 0xFBF8F3)
-    private let terracotta = Color(hex: 0xC67B5C)
-    private let warmGray = Color(hex: 0x8A8178)
-
     var body: some View {
         ZStack {
-            creamBackground
+            Theme.cream
                 .ignoresSafeArea()
 
             VStack(spacing: 32) {
@@ -26,7 +21,7 @@ struct LaunchView: View {
                 Spacer()
                     .frame(height: 40)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, Theme.horizontalPadding + 8)
         }
         .task {
             await modelState.prepareOnLaunch()
@@ -38,12 +33,12 @@ struct LaunchView: View {
     private var headerSection: some View {
         VStack(spacing: 12) {
             Text("Lifehug")
-                .font(.system(size: 40, weight: .regular, design: .serif))
-                .foregroundStyle(Color(hex: 0x3A3632))
+                .font(Theme.displayFont)
+                .foregroundStyle(Theme.walnut)
 
             Text("Thoughtful questions for a\nmore examined life")
-                .font(.system(size: 17, weight: .regular, design: .serif))
-                .foregroundStyle(warmGray)
+                .font(Theme.bodySerifFont)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }
@@ -77,7 +72,7 @@ struct LaunchView: View {
         VStack(spacing: 20) {
             Text("Lifehug runs entirely on your device.\nA one-time download is needed.")
                 .font(.subheadline)
-                .foregroundStyle(warmGray)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 
@@ -93,14 +88,14 @@ struct LaunchView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(terracotta, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Theme.terracotta, in: RoundedRectangle(cornerRadius: Theme.buttonCornerRadius, style: .continuous))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Download AI model, approximately 700 megabytes")
 
             Text("~700 MB over Wi-Fi")
                 .font(.caption)
-                .foregroundStyle(warmGray.opacity(0.7))
+                .foregroundStyle(Theme.softGray)
         }
     }
 
@@ -110,28 +105,28 @@ struct LaunchView: View {
         VStack(spacing: 20) {
             VStack(spacing: 8) {
                 ProgressView(value: modelState.downloadProgress)
-                    .tint(terracotta)
+                    .tint(Theme.terracotta)
                     .scaleEffect(y: 2)
                     .clipShape(Capsule())
 
                 HStack {
                     Text(progressLabel)
                         .font(.caption)
-                        .foregroundStyle(warmGray)
+                        .foregroundStyle(Theme.warmGray)
                         .monospacedDigit()
 
                     Spacer()
 
                     Text("\(Int(modelState.downloadProgress * 100))%")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(terracotta)
+                        .foregroundStyle(Theme.terracotta)
                         .monospacedDigit()
                 }
             }
 
             Text("Downloading model...")
                 .font(.subheadline)
-                .foregroundStyle(warmGray)
+                .foregroundStyle(Theme.warmGray)
         }
     }
 
@@ -150,11 +145,11 @@ struct LaunchView: View {
         VStack(spacing: 16) {
             ProgressView()
                 .controlSize(.large)
-                .tint(terracotta)
+                .tint(Theme.terracotta)
 
             Text("Preparing Lifehug...")
                 .font(.subheadline)
-                .foregroundStyle(warmGray)
+                .foregroundStyle(Theme.warmGray)
         }
     }
 
@@ -164,14 +159,13 @@ struct LaunchView: View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 44))
-                .foregroundStyle(terracotta)
+                .foregroundStyle(Theme.terracotta)
 
             Text("Ready")
-                .font(.headline)
-                .foregroundStyle(Color(hex: 0x3A3632))
+                .font(Theme.headlineFont)
+                .foregroundStyle(Theme.walnut)
         }
         .onAppear {
-            // Transition to onboarding or main app after a brief moment
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     if appState.isOnboardingComplete {
@@ -194,7 +188,7 @@ struct LaunchView: View {
 
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(warmGray)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 
@@ -209,21 +203,10 @@ struct LaunchView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(terracotta, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Theme.terracotta, in: RoundedRectangle(cornerRadius: Theme.buttonCornerRadius, style: .continuous))
             }
             .buttonStyle(.plain)
         }
-    }
-}
-
-// MARK: - Color Extension
-
-private extension Color {
-    init(hex: UInt32) {
-        let r = Double((hex >> 16) & 0xFF) / 255
-        let g = Double((hex >> 8) & 0xFF) / 255
-        let b = Double(hex & 0xFF) / 255
-        self.init(red: r, green: g, blue: b)
     }
 }
 

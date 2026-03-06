@@ -30,11 +30,9 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var selectedTab: Int = 0
 
-    private let terracotta = Color(hex: UInt(0xC67B5C))
-
     var body: some View {
         ZStack {
-            Color(hex: UInt(0xFBF8F3))
+            Theme.cream
                 .ignoresSafeArea()
 
             switch appState.activeScreen {
@@ -60,7 +58,7 @@ struct ContentView: View {
                         SettingsView()
                     }
                 }
-                .tint(terracotta)
+                .tint(Theme.terracotta)
             }
         }
     }

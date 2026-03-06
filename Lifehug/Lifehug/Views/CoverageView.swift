@@ -10,16 +10,6 @@ struct CoverageView: View {
 
     private let storage = StorageService()
 
-    // MARK: - Colors
-
-    private let creamBackground = Color(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF3 / 255)
-    private let warmCharcoal = Color(red: 0x2C / 255, green: 0x24 / 255, blue: 0x20 / 255)
-    private let warmGray = Color(red: 0x6B / 255, green: 0x5E / 255, blue: 0x54 / 255)
-    private let terracotta = Color(red: 0xC6 / 255, green: 0x7B / 255, blue: 0x5C / 255)
-    private let sageGreen = Color(red: 0x7B / 255, green: 0xA1 / 255, blue: 0x7D / 255)
-    private let amber = Color(red: 0xD4 / 255, green: 0xA8 / 255, blue: 0x55 / 255)
-    private let mutedRose = Color(red: 0xC4 / 255, green: 0x70 / 255, blue: 0x70 / 255)
-
     // MARK: - Body
 
     var body: some View {
@@ -31,17 +21,13 @@ struct CoverageView: View {
                 }
                 .padding()
             }
-            .background(creamBackground.ignoresSafeArea())
+            .background(Theme.cream.ignoresSafeArea())
             .navigationTitle("Coverage")
             .sheet(item: categoryBinding) { wrapper in
                 CategoryDetailSheet(
                     category: wrapper.category,
                     questions: questions.filter { $0.category == wrapper.id },
-                    categoryColor: colorForCategory(wrapper.id),
-                    creamBackground: creamBackground,
-                    warmCharcoal: warmCharcoal,
-                    warmGray: warmGray,
-                    terracotta: terracotta
+                    categoryColor: colorForCategory(wrapper.id)
                 )
             }
             .task {
@@ -82,19 +68,18 @@ struct CoverageView: View {
                         .frame(width: 12, height: 12)
                     Text(statusLabel)
                         .font(.caption2)
-                        .foregroundStyle(warmGray)
+                        .foregroundStyle(Theme.warmGray)
                 }
 
                 Text("\(String(letter)): \(cat.name)")
-                    .font(.subheadline)
-                    .fontDesign(.serif)
-                    .foregroundStyle(warmCharcoal)
+                    .font(Theme.subheadlineSerifFont)
+                    .foregroundStyle(Theme.warmCharcoal)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
                 Text("\(info.answered)/\(info.total)")
                     .font(.title3.bold())
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
@@ -119,17 +104,16 @@ struct CoverageView: View {
 
         return VStack(spacing: 8) {
             Text("Total Questions Answered")
-                .font(.subheadline)
-                .fontDesign(.serif)
-                .foregroundStyle(warmGray)
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmGray)
 
             Text("\(totalAnswered) / \(totalQuestions)")
                 .font(.title.bold())
-                .foregroundStyle(warmCharcoal)
+                .foregroundStyle(Theme.warmCharcoal)
 
             if totalQuestions > 0 {
                 SwiftUI.ProgressView(value: Double(totalAnswered), total: Double(totalQuestions))
-                    .tint(terracotta)
+                    .tint(Theme.terracotta)
                     .padding(.horizontal, 40)
             }
         }
@@ -157,14 +141,14 @@ struct CoverageView: View {
 
     private func colorForStatus(_ status: CoverageStatus) -> Color {
         switch status {
-        case .green: sageGreen
-        case .yellow: amber
-        case .red: mutedRose
+        case .green: Theme.sageGreen
+        case .yellow: Theme.amber
+        case .red: Theme.mutedRose
         }
     }
 
     private func colorForCategory(_ letter: Character) -> Color {
-        guard let info = coverage[letter] else { return warmGray }
+        guard let info = coverage[letter] else { return Theme.warmGray }
         return colorForStatus(info.status)
     }
 
@@ -202,10 +186,6 @@ private struct CategoryDetailSheet: View {
     let category: Category
     let questions: [Question]
     let categoryColor: Color
-    let creamBackground: Color
-    let warmCharcoal: Color
-    let warmGray: Color
-    let terracotta: Color
 
     @Environment(\.dismiss) private var dismiss
 
@@ -215,28 +195,28 @@ private struct CategoryDetailSheet: View {
                 ForEach(questions) { question in
                     HStack(spacing: 12) {
                         Image(systemName: question.answered ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(question.answered ? categoryColor : warmGray)
+                            .foregroundStyle(question.answered ? categoryColor : Theme.warmGray)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(question.id)
                                 .font(.caption)
-                                .foregroundStyle(warmGray)
+                                .foregroundStyle(Theme.warmGray)
                             Text(question.text)
-                                .font(.body)
-                                .foregroundStyle(warmCharcoal)
+                                .font(Theme.bodySerifFont)
+                                .foregroundStyle(Theme.warmCharcoal)
                         }
                     }
-                    .listRowBackground(creamBackground)
+                    .listRowBackground(Theme.cream)
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(creamBackground.ignoresSafeArea())
+            .background(Theme.cream.ignoresSafeArea())
             .navigationTitle("\(String(category.id)): \(category.name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(terracotta)
+                        .foregroundStyle(Theme.terracotta)
                 }
             }
         }

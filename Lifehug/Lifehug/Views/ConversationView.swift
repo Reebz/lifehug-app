@@ -19,15 +19,9 @@ struct ConversationView: View {
 
     private let storageService = StorageService()
 
-    // Design tokens
-    private let cream = Color(hex: 0xFBF8F3)
-    private let warmCharcoal = Color(hex: 0x2C2420)
-    private let warmGray = Color(hex: 0x6B5E54)
-    private let terracotta = Color(hex: 0xC67B5C)
-
     var body: some View {
         ZStack {
-            cream.ignoresSafeArea()
+            Theme.cream.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 chatArea
@@ -48,7 +42,7 @@ struct ConversationView: View {
                     dismiss()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .foregroundStyle(warmCharcoal)
+                        .foregroundStyle(Theme.warmCharcoal)
                 }
             }
         }
@@ -82,10 +76,10 @@ struct ConversationView: View {
                         HStack {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(terracotta)
+                                .tint(Theme.terracotta)
                             Text("Thinking...")
                                 .font(.caption)
-                                .foregroundStyle(warmGray)
+                                .foregroundStyle(Theme.warmGray)
                             Spacer()
                         }
                         .padding(.horizontal, 16)
@@ -110,13 +104,12 @@ struct ConversationView: View {
                 Text("\(String(question.category)): \(cat.name)")
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
             }
 
             Text(question.text)
-                .font(.title3)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.title3Font)
+                .foregroundStyle(Theme.warmCharcoal)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 16)
@@ -124,7 +117,7 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(terracotta.opacity(0.08))
+                .fill(Theme.terracotta.opacity(0.08))
         )
     }
 
@@ -134,8 +127,8 @@ struct ConversationView: View {
             if turn.role == .user { Spacer(minLength: 48) }
 
             Text(turn.text)
-                .font(.body)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.bodySerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(bubbleBackground(for: turn.role))
@@ -151,7 +144,7 @@ struct ConversationView: View {
         switch role {
         case .user:
             RoundedRectangle(cornerRadius: 18)
-                .fill(cream)
+                .fill(Theme.cream)
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
                         .stroke(Color.black.opacity(0.05), lineWidth: 1)
@@ -181,14 +174,14 @@ struct ConversationView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 32))
-                    .foregroundStyle(terracotta)
+                    .foregroundStyle(Theme.terracotta)
             }
             .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel("Send message")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(cream)
+        .background(Theme.cream)
     }
 
     // MARK: - End Session Button
@@ -203,8 +196,8 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(terracotta)
+                    RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                        .fill(Theme.terracotta)
                 )
         }
         .disabled(session.conversationTurns.isEmpty || isSaving)
@@ -223,12 +216,12 @@ struct ConversationView: View {
             VStack(spacing: 16) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 48))
-                    .foregroundStyle(terracotta)
+                    .foregroundStyle(Theme.terracotta)
 
                 Text("Answer Saved")
-                    .font(.title3.weight(.semibold))
-                    .fontDesign(.serif)
-                    .foregroundStyle(warmCharcoal)
+                    .font(Theme.title3Font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.warmCharcoal)
 
                 if let error = saveError {
                     Text(error)

@@ -9,13 +9,6 @@ struct AnswersBrowserView: View {
 
     private let storage = StorageService()
 
-    // MARK: - Colors
-
-    private let creamBackground = Color(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF3 / 255)
-    private let warmCharcoal = Color(red: 0x2C / 255, green: 0x24 / 255, blue: 0x20 / 255)
-    private let warmGray = Color(red: 0x6B / 255, green: 0x5E / 255, blue: 0x54 / 255)
-    private let terracotta = Color(red: 0xC6 / 255, green: 0x7B / 255, blue: 0x5C / 255)
-
     var body: some View {
         NavigationStack {
             Group {
@@ -25,16 +18,12 @@ struct AnswersBrowserView: View {
                     answersList
                 }
             }
-            .background(creamBackground.ignoresSafeArea())
+            .background(Theme.cream.ignoresSafeArea())
             .navigationTitle("Your Answers")
             .navigationDestination(item: $selectedAnswer) { answer in
                 AnswerDetailView(
                     answer: answer,
                     storage: storage,
-                    creamBackground: creamBackground,
-                    warmCharcoal: warmCharcoal,
-                    warmGray: warmGray,
-                    terracotta: terracotta,
                     onSave: { loadAnswers() }
                 )
             }
@@ -51,14 +40,13 @@ struct AnswersBrowserView: View {
         VStack(spacing: 16) {
             Image(systemName: "doc.text")
                 .font(.system(size: 48))
-                .foregroundStyle(warmGray.opacity(0.5))
+                .foregroundStyle(Theme.warmGray.opacity(0.5))
             Text("No answers yet")
-                .font(.title3)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.title3Font)
+                .foregroundStyle(Theme.warmCharcoal)
             Text("Your answers will appear here after you respond to your first question.")
-                .font(.body)
-                .foregroundStyle(warmGray)
+                .font(Theme.bodySerifFont)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
@@ -80,11 +68,10 @@ struct AnswersBrowserView: View {
                 } header: {
                     let catName = categories[letter]?.name ?? String(letter)
                     Text("\(String(letter)): \(catName)")
-                        .font(.subheadline)
-                        .fontDesign(.serif)
-                        .foregroundStyle(warmCharcoal)
+                        .font(Theme.subheadlineSerifFont)
+                        .foregroundStyle(Theme.warmCharcoal)
                 }
-                .listRowBackground(creamBackground)
+                .listRowBackground(Theme.cream)
             }
         }
         .scrollContentBackground(.hidden)
@@ -97,22 +84,22 @@ struct AnswersBrowserView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(answer.questionText)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                     .lineLimit(2)
 
                 HStack(spacing: 8) {
                     Text(answer.questionID)
                         .font(.caption)
-                        .foregroundStyle(terracotta)
+                        .foregroundStyle(Theme.terracotta)
 
                     Text(formattedDate(answer.answeredDate))
                         .font(.caption)
-                        .foregroundStyle(warmGray)
+                        .foregroundStyle(Theme.warmGray)
                 }
 
                 Text(String(answer.answerText.prefix(100)))
                     .font(.caption)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
                     .lineLimit(2)
             }
             .padding(.vertical, 4)
@@ -176,10 +163,6 @@ extension Answer: Identifiable {
 struct AnswerDetailView: View {
     let answer: Answer
     let storage: StorageService
-    let creamBackground: Color
-    let warmCharcoal: Color
-    let warmGray: Color
-    let terracotta: Color
     let onSave: () -> Void
 
     @State private var isEditing = false
@@ -193,12 +176,11 @@ struct AnswerDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(answer.questionID)
                         .font(.caption)
-                        .foregroundStyle(terracotta)
+                        .foregroundStyle(Theme.terracotta)
 
                     Text(answer.questionText)
-                        .font(.title3)
-                        .fontDesign(.serif)
-                        .foregroundStyle(warmCharcoal)
+                        .font(Theme.title3Font)
+                        .foregroundStyle(Theme.warmCharcoal)
 
                     HStack(spacing: 16) {
                         Label(
@@ -209,7 +191,7 @@ struct AnswerDetailView: View {
                         Label(formattedDate(answer.answeredDate), systemImage: "calendar")
                     }
                     .font(.caption)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -229,11 +211,11 @@ struct AnswerDetailView: View {
                                 .fill(.white)
                                 .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
                         )
-                        .foregroundStyle(warmCharcoal)
+                        .foregroundStyle(Theme.warmCharcoal)
                 } else {
                     Text(answer.answerText)
                         .font(.body)
-                        .foregroundStyle(warmCharcoal)
+                        .foregroundStyle(Theme.warmCharcoal)
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
@@ -247,18 +229,17 @@ struct AnswerDetailView: View {
                 if !answer.followUpQuestions.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Follow-up Questions")
-                            .font(.subheadline)
-                            .fontDesign(.serif)
-                            .foregroundStyle(warmCharcoal)
+                            .font(Theme.subheadlineSerifFont)
+                            .foregroundStyle(Theme.warmCharcoal)
 
                         ForEach(answer.followUpQuestions, id: \.id) { fq in
                             HStack(alignment: .top, spacing: 8) {
                                 Text(fq.id)
                                     .font(.caption)
-                                    .foregroundStyle(terracotta)
+                                    .foregroundStyle(Theme.terracotta)
                                 Text(fq.text)
                                     .font(.caption)
-                                    .foregroundStyle(warmGray)
+                                    .foregroundStyle(Theme.warmGray)
                             }
                         }
                     }
@@ -274,12 +255,12 @@ struct AnswerDetailView: View {
                 if answer.source == .voice {
                     Label("Transcribed from voice", systemImage: "mic")
                         .font(.caption)
-                        .foregroundStyle(warmGray)
+                        .foregroundStyle(Theme.warmGray)
                 }
             }
             .padding()
         }
-        .background(creamBackground.ignoresSafeArea())
+        .background(Theme.cream.ignoresSafeArea())
         .navigationTitle("Answer")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -292,7 +273,7 @@ struct AnswerDetailView: View {
                         isEditing = true
                     }
                 }
-                .foregroundStyle(terracotta)
+                .foregroundStyle(Theme.terracotta)
             }
         }
     }

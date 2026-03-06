@@ -14,9 +14,6 @@ struct OnboardingView: View {
     private let storage = StorageService()
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Onboarding")
 
-    private let creamBackground = Color(red: 251 / 255, green: 248 / 255, blue: 243 / 255)
-    private let terracotta = Color(red: 198 / 255, green: 123 / 255, blue: 92 / 255)
-
     enum OnboardingStep: CaseIterable {
         case welcome
         case name
@@ -27,7 +24,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            creamBackground.ignoresSafeArea()
+            Theme.cream.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Spacer()
@@ -46,20 +43,20 @@ struct OnboardingView: View {
                         completionContent
                     }
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, Theme.horizontalPadding + 8)
 
                 Spacer()
 
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 32)
+                        .foregroundStyle(Theme.mutedRose)
+                        .padding(.horizontal, Theme.horizontalPadding + 8)
                         .padding(.bottom, 8)
                 }
 
                 continueButton
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, Theme.horizontalPadding + 8)
                     .padding(.bottom, 48)
             }
         }
@@ -71,13 +68,14 @@ struct OnboardingView: View {
     private var welcomeContent: some View {
         VStack(spacing: 24) {
             Text("Welcome to Lifehug")
-                .font(.title.bold())
-                .fontDesign(.serif)
+                .font(Theme.titleFont)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
 
             Text("Capture your life story through daily questions and voice conversations.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(Theme.bodySerifFont)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }
@@ -86,8 +84,9 @@ struct OnboardingView: View {
     private var nameContent: some View {
         VStack(spacing: 24) {
             Text("What should we call you?")
-                .font(.title2.bold())
-                .fontDesign(.serif)
+                .font(Theme.title2Font)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
 
             TextField("Your name", text: $userName)
@@ -97,26 +96,27 @@ struct OnboardingView: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.white)
+                    RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                        .fill(Theme.cardBackground)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
                         .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                 )
                 .autocorrectionDisabled()
 
             Text("Leave blank and we'll call you \"friend\"")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Theme.softGray)
         }
     }
 
     private var projectTypeContent: some View {
         VStack(spacing: 24) {
             Text("What do you want to write?")
-                .font(.title2.bold())
-                .fontDesign(.serif)
+                .font(Theme.title2Font)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: 12) {
@@ -126,8 +126,8 @@ struct OnboardingView: View {
                     } label: {
                         HStack {
                             Text(type)
-                                .font(.body)
-                                .foregroundStyle(selectedProjectType == type ? .white : .primary)
+                                .font(Theme.bodySerifFont)
+                                .foregroundStyle(selectedProjectType == type ? .white : Theme.warmCharcoal)
                             Spacer()
                             if selectedProjectType == type {
                                 Image(systemName: "checkmark")
@@ -138,11 +138,11 @@ struct OnboardingView: View {
                         .padding(.vertical, 14)
                         .padding(.horizontal, 20)
                         .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(selectedProjectType == type ? terracotta : .white)
+                            RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                                .fill(selectedProjectType == type ? Theme.terracotta : Theme.cardBackground)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16)
+                            RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
                                 .stroke(
                                     selectedProjectType == type ? Color.clear : Color.gray.opacity(0.2),
                                     lineWidth: 1
@@ -158,8 +158,9 @@ struct OnboardingView: View {
     private var importantPeopleContent: some View {
         VStack(spacing: 24) {
             Text("Who are important people in your story?")
-                .font(.title2.bold())
-                .fontDesign(.serif)
+                .font(Theme.title2Font)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
 
             TextField("e.g. Mom, Uncle Ray, Coach Kim", text: $importantPeople, axis: .vertical)
@@ -168,18 +169,18 @@ struct OnboardingView: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.white)
+                    RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                        .fill(Theme.cardBackground)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
                         .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                 )
                 .autocorrectionDisabled()
 
             Text("Comma-separated names. You can skip this for now.")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Theme.softGray)
                 .multilineTextAlignment(.center)
         }
     }
@@ -187,13 +188,14 @@ struct OnboardingView: View {
     private var completionContent: some View {
         VStack(spacing: 24) {
             Text("You're all set!")
-                .font(.title.bold())
-                .fontDesign(.serif)
+                .font(Theme.titleFont)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
 
             Text("Let's start with your first question.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(Theme.bodySerifFont)
+                .foregroundStyle(Theme.warmGray)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }
@@ -219,7 +221,7 @@ struct OnboardingView: View {
             .padding(.vertical, 18)
             .background(
                 RoundedRectangle(cornerRadius: 20)
-                    .fill(terracotta)
+                    .fill(Theme.terracotta)
             )
         }
         .buttonStyle(.plain)
@@ -261,7 +263,6 @@ struct OnboardingView: View {
     }
 
     private func finalizeOnboarding() throws {
-        // Step 1: Create config
         let resolvedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = resolvedName.isEmpty ? "friend" : resolvedName
 
@@ -279,26 +280,21 @@ struct OnboardingView: View {
         try storage.writeConfig(config)
         logger.info("Config saved: name=\(finalName), project=\(selectedProjectType)")
 
-        // Step 2: Append template categories to question-bank.md
         try storage.copyBundledQuestionBankIfNeeded()
 
         var markdown = try storage.readQuestionBank()
 
-        // Remove the placeholder project categories section
         let placeholderPattern = "## Project Categories\n\n*Categories F-J are added during setup based on your specific projects. The AI will generate these after learning what you want to write about.*"
         markdown = markdown.replacingOccurrences(of: placeholderPattern, with: "")
 
-        // Generate and insert template sections before the Spotlights section
         let templateMarkdown = OnboardingTemplates.markdownSections(for: selectedProjectType)
 
         if let spotlightsRange = markdown.range(of: "## Spotlights") {
             markdown.insert(contentsOf: templateMarkdown + "\n\n", at: spotlightsRange.lowerBound)
         } else {
-            // Append at end if no Spotlights section found
             markdown += "\n\n" + templateMarkdown + "\n"
         }
 
-        // If there are important people, add a note in the spotlights section
         if !peopleList.isEmpty {
             let peopleNote = "\n\n*Pending spotlights: \(peopleList.joined(separator: ", "))*"
             markdown += peopleNote
@@ -307,7 +303,6 @@ struct OnboardingView: View {
         try storage.writeQuestionBank(markdown)
         logger.info("Question bank updated with \(selectedProjectType) categories")
 
-        // Step 3: Initialize rotation state
         let rotationState = RotationState()
         try storage.writeRotationState(rotationState)
         logger.info("Rotation state initialized")

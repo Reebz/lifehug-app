@@ -16,14 +16,6 @@ struct SettingsView: View {
 
     private let storage = StorageService()
 
-    // MARK: - Colors
-
-    private let creamBackground = Color(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF3 / 255)
-    private let warmCharcoal = Color(red: 0x2C / 255, green: 0x24 / 255, blue: 0x20 / 255)
-    private let warmGray = Color(red: 0x6B / 255, green: 0x5E / 255, blue: 0x54 / 255)
-    private let terracotta = Color(red: 0xC6 / 255, green: 0x7B / 255, blue: 0x5C / 255)
-    private let mutedRose = Color(red: 0xC4 / 255, green: 0x70 / 255, blue: 0x70 / 255)
-
     var body: some View {
         NavigationStack {
             Form {
@@ -34,7 +26,7 @@ struct SettingsView: View {
                 aboutSection
             }
             .scrollContentBackground(.hidden)
-            .background(creamBackground.ignoresSafeArea())
+            .background(Theme.cream.ignoresSafeArea())
             .navigationTitle("Settings")
             .task {
                 loadSettings()
@@ -69,20 +61,19 @@ struct SettingsView: View {
         Section {
             HStack {
                 Text("Name")
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 TextField("Your name", text: $userName)
                     .multilineTextAlignment(.trailing)
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                     .onSubmit { saveName() }
                     .onChange(of: userName) { _, _ in saveName() }
             }
             .listRowBackground(Color.white)
         } header: {
             Text("Profile")
-                .font(.subheadline)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
         }
     }
 
@@ -92,9 +83,9 @@ struct SettingsView: View {
         Section {
             Toggle(isOn: $reminderEnabled) {
                 Text("Daily Reminder")
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
             }
-            .tint(terracotta)
+            .tint(Theme.terracotta)
             .onChange(of: reminderEnabled) { _, enabled in
                 if enabled {
                     requestNotificationPermission()
@@ -110,7 +101,7 @@ struct SettingsView: View {
                     selection: $reminderTime,
                     displayedComponents: .hourAndMinute
                 )
-                .foregroundStyle(warmCharcoal)
+                .foregroundStyle(Theme.warmCharcoal)
                 .onChange(of: reminderTime) { _, newTime in
                     NotificationService.scheduleDailyReminder(at: newTime)
                 }
@@ -120,18 +111,17 @@ struct SettingsView: View {
             if notificationDenied {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(mutedRose)
+                        .foregroundStyle(Theme.mutedRose)
                     Text("Notifications are disabled. Please enable them in Settings to receive daily reminders.")
                         .font(.caption)
-                        .foregroundStyle(warmGray)
+                        .foregroundStyle(Theme.warmGray)
                 }
                 .listRowBackground(Color.white)
             }
         } header: {
             Text("Reminders")
-                .font(.subheadline)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
         }
     }
 
@@ -141,28 +131,28 @@ struct SettingsView: View {
         Section {
             HStack {
                 Text("Model Status")
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(modelStatusText)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
             }
             .listRowBackground(Color.white)
 
             HStack {
                 Text("Model Size")
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(modelSizeMB)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
             }
             .listRowBackground(Color.white)
 
             HStack {
                 Text("Answers Storage")
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(storageSizeMB)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
             }
             .listRowBackground(Color.white)
 
@@ -173,14 +163,13 @@ struct SettingsView: View {
                     Image(systemName: "trash")
                     Text("Delete Model Cache")
                 }
-                .foregroundStyle(mutedRose)
+                .foregroundStyle(Theme.mutedRose)
             }
             .listRowBackground(Color.white)
         } header: {
             Text("Storage")
-                .font(.subheadline)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
         }
     }
 
@@ -195,7 +184,7 @@ struct SettingsView: View {
                     Image(systemName: "square.and.arrow.up")
                     Text("Export Answers")
                 }
-                .foregroundStyle(terracotta)
+                .foregroundStyle(Theme.terracotta)
             }
             .listRowBackground(Color.white)
 
@@ -206,14 +195,13 @@ struct SettingsView: View {
                     Image(systemName: "arrow.counterclockwise")
                     Text("Reset Lifehug")
                 }
-                .foregroundStyle(mutedRose)
+                .foregroundStyle(Theme.mutedRose)
             }
             .listRowBackground(Color.white)
         } header: {
             Text("Data")
-                .font(.subheadline)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
         }
     }
 
@@ -223,17 +211,16 @@ struct SettingsView: View {
         Section {
             HStack {
                 Text("Version")
-                    .foregroundStyle(warmCharcoal)
+                    .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(appVersion)
-                    .foregroundStyle(warmGray)
+                    .foregroundStyle(Theme.warmGray)
             }
             .listRowBackground(Color.white)
         } header: {
             Text("About")
-                .font(.subheadline)
-                .fontDesign(.serif)
-                .foregroundStyle(warmCharcoal)
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
         }
     }
 
