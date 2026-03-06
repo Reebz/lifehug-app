@@ -383,8 +383,8 @@ struct SettingsView: View {
         NotificationService.cancelDailyReminder()
 
         // Re-trigger onboarding
-        appState.isOnboardingComplete = false
-        appState.activeScreen = .onboarding
+        appState.resetOnboarding()
+        appState.activeScreen = .launch
     }
 
     private static func defaultReminderTime() -> Date {

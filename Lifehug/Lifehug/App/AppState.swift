@@ -15,4 +15,18 @@ final class AppState {
         case answersBrowser
         case settings
     }
+
+    init() {
+        isOnboardingComplete = UserDefaults.standard.bool(forKey: "onboardingComplete")
+    }
+
+    func completeOnboarding() {
+        isOnboardingComplete = true
+        UserDefaults.standard.set(true, forKey: "onboardingComplete")
+    }
+
+    func resetOnboarding() {
+        isOnboardingComplete = false
+        UserDefaults.standard.set(false, forKey: "onboardingComplete")
+    }
 }

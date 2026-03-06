@@ -251,7 +251,7 @@ struct OnboardingView: View {
         isProcessing = true
         do {
             try finalizeOnboarding()
-            appState.isOnboardingComplete = true
+            appState.completeOnboarding()
             appState.activeScreen = .dailyQuestion
         } catch {
             logger.error("Onboarding failed: \(error.localizedDescription)")

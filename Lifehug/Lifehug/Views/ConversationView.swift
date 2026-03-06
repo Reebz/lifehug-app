@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConversationView: View {
     @Environment(SessionState.self) private var session
+    @Environment(LLMService.self) private var llmService
     @Environment(\.dismiss) private var dismiss
 
     @Binding var questions: [Question]
@@ -12,7 +13,9 @@ struct ConversationView: View {
     @State private var messageText: String = ""
     @State private var showSavedConfirmation: Bool = false
     @State private var isSaving: Bool = false
+    @State private var isThinking: Bool = false
     @State private var saveError: String?
+    @State private var hasStartedLLMSession: Bool = false
 
     private let storageService = StorageService()
 
@@ -49,6 +52,14 @@ struct ConversationView: View {
                 }
             }
         }
+        .task {
+            // Generate initial LLM response for the user's first message
+            if let lastTurn = session.conversationTurns.last,
+               lastTurn.role == .user,
+               !hasStartedLLMSession {
+                await generateLLMResponse(to: lastTurn.text)
+            }
+        }
     }
 
     // MARK: - Chat Area
@@ -65,6 +76,19 @@ struct ConversationView: View {
                     ForEach(session.conversationTurns) { turn in
                         chatBubble(for: turn)
                             .id(turn.id)
+                    }
+
+                    if isThinking {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(terracotta)
+                            Text("Thinking...")
+                                .font(.caption)
+                                .foregroundStyle(warmGray)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -160,6 +184,7 @@ struct ConversationView: View {
                     .foregroundStyle(terracotta)
             }
             .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send message")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -185,6 +210,7 @@ struct ConversationView: View {
         .disabled(session.conversationTurns.isEmpty || isSaving)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+        .accessibilityLabel("End conversation and save your answer")
     }
 
     // MARK: - Saved Overlay
@@ -230,11 +256,36 @@ struct ConversationView: View {
         session.addTurn(role: .user, text: text)
         messageText = ""
 
-        // Placeholder AI response until LLM is wired up
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task {
+            await generateLLMResponse(to: text)
+        }
+    }
+
+    private func generateLLMResponse(to text: String) async {
+        isThinking = true
+        defer { isThinking = false }
+
+        do {
+            if !llmService.isLoaded {
+                try await llmService.loadModel()
+            }
+
+            if !hasStartedLLMSession {
+                let userName = (try? storageService.readConfig().name) ?? "friend"
+                let prompt = LLMService.memoirInterviewerPrompt(
+                    userName: userName,
+                    questionText: session.currentQuestion?.text ?? ""
+                )
+                llmService.startNewSession(systemPrompt: prompt)
+                hasStartedLLMSession = true
+            }
+
+            let response = try await llmService.respond(to: text)
+            session.addTurn(role: .assistant, text: response)
+        } catch {
             session.addTurn(
                 role: .assistant,
-                text: "Thank you for sharing more. Is there anything else you would like to add?"
+                text: "I had trouble responding. Could you try again?"
             )
         }
     }

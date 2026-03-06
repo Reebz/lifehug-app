@@ -96,6 +96,7 @@ struct LaunchView: View {
                 .background(terracotta, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Download AI model, approximately 700 megabytes")
 
             Text("~700 MB over Wi-Fi")
                 .font(.caption)
@@ -170,10 +171,14 @@ struct LaunchView: View {
                 .foregroundStyle(Color(hex: 0x3A3632))
         }
         .onAppear {
-            // Transition to main app after a brief moment
+            // Transition to onboarding or main app after a brief moment
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    appState.activeScreen = .dailyQuestion
+                    if appState.isOnboardingComplete {
+                        appState.activeScreen = .dailyQuestion
+                    } else {
+                        appState.activeScreen = .onboarding
+                    }
                 }
             }
         }

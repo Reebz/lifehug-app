@@ -1,4 +1,5 @@
 import Foundation
+import Hub
 import MLXLMCommon
 import MLXLLM
 import os
@@ -32,10 +33,13 @@ final class LLMService {
         logger.info("Loading LLM model...")
 
         let configuration = ModelConfiguration(id: Self.modelID)
+        let storage = StorageService()
+        let hubAPI = HubApi(downloadBase: storage.modelsDirectory)
+
         let container = try await LLMModelFactory.shared.loadContainer(
+            hub: hubAPI,
             configuration: configuration
         ) { progress in
-            // Progress is for download — model may already be cached
             Task { @MainActor in
                 self.logger.debug("Model load progress: \(progress)")
             }

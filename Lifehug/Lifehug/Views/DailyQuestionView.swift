@@ -2,7 +2,9 @@ import SwiftUI
 
 struct DailyQuestionView: View {
     @Environment(SessionState.self) private var session
+    @Environment(STTService.self) private var sttService
     @State private var storageService = StorageService()
+    @State private var recordingTask: Task<Void, Never>?
     @State private var questions: [Question] = []
     @State private var categories: [Character: Category] = [:]
     @State private var rotationState: RotationState = .default
@@ -98,8 +100,10 @@ struct DailyQuestionView: View {
 
     private var micButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.2)) {
-                session.isRecording.toggle()
+            if session.isRecording {
+                stopRecording()
+            } else {
+                startRecording()
             }
         } label: {
             ZStack {
@@ -215,6 +219,57 @@ struct DailyQuestionView: View {
         }
     }
 
+    // MARK: - Voice Recording
+
+    private func startRecording() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            session.isRecording = true
+        }
+        session.draftTranscript = ""
+
+        recordingTask = Task {
+            if !sttService.isAuthorized {
+                await sttService.requestAuthorization()
+            }
+            guard sttService.isAuthorized else {
+                session.isRecording = false
+                return
+            }
+
+            let stream = sttService.startListening()
+            for await transcript in stream {
+                guard !Task.isCancelled else { return }
+                session.draftTranscript = transcript
+            }
+
+            guard !Task.isCancelled else { return }
+
+            // Stream finished (silence detected or finalized)
+            session.isRecording = false
+            let text = session.draftTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                session.addTurn(role: .user, text: text)
+                navigateToConversation = true
+            }
+        }
+    }
+
+    private func stopRecording() {
+        recordingTask?.cancel()
+        recordingTask = nil
+        sttService.stopListening()
+
+        withAnimation(.easeOut(duration: 0.2)) {
+            session.isRecording = false
+        }
+
+        let text = session.draftTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            session.addTurn(role: .user, text: text)
+            navigateToConversation = true
+        }
+    }
+
     // MARK: - Actions
 
     @MainActor
@@ -259,12 +314,6 @@ struct DailyQuestionView: View {
         withAnimation(.easeOut(duration: 0.25)) {
             showTypeInput = false
         }
-
-        // Provide a placeholder AI response
-        session.addTurn(
-            role: .assistant,
-            text: "Thank you for sharing. Would you like to add anything else, or shall we save this answer?"
-        )
 
         navigateToConversation = true
     }
