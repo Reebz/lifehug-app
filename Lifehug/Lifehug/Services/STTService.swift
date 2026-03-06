@@ -27,6 +27,11 @@ final class STTService {
     }
 
     func requestAuthorization() async {
+        #if targetEnvironment(simulator)
+        // Simulator doesn't support on-device speech recognition.
+        isAuthorized = true
+        return
+        #else
         let status = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
@@ -36,9 +41,25 @@ final class STTService {
         if !isAuthorized {
             error = "Speech recognition not authorized. Please enable in Settings."
         }
+        #endif
     }
 
     func startListening() -> AsyncStream<String> {
+        #if targetEnvironment(simulator)
+        // Simulator has no microphone or on-device speech model.
+        // Return a mock transcript after a short delay.
+        return AsyncStream<String> { continuation in
+            Task { @MainActor in
+                self.isRecording = true
+                try? await Task.sleep(for: .seconds(1.5))
+                let mockText = "This is a simulated voice answer for testing on the simulator."
+                self.partialTranscript = mockText
+                continuation.yield(mockText)
+                continuation.finish()
+                self.isRecording = false
+            }
+        }
+        #else
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
             continuation.onTermination = { @Sendable _ in
@@ -57,6 +78,7 @@ final class STTService {
         }
 
         return stream
+        #endif
     }
 
     func stopListening() {
