@@ -529,7 +529,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -551,7 +551,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
