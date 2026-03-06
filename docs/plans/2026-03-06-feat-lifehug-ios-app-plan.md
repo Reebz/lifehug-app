@@ -250,7 +250,7 @@ Lifehug/
 
 #### Tasks
 
-- [ ] Create Xcode project with SwiftUI lifecycle, set deployment target iOS 18.0
+- [x] Create Xcode project with SwiftUI lifecycle, set deployment target iOS 18.0
 - [ ] Add SPM dependencies: `mlx-swift-lm` (MLXLLM product), `kokoro-ios`
 - [ ] Verify SPM resolution and clean build (this catches dependency issues early)
 - [ ] Add `com.apple.developer.kernel.increased-memory-limit` entitlement
