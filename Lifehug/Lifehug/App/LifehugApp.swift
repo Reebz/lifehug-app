@@ -33,30 +33,35 @@ struct ContentView: View {
     private let terracotta = Color(hex: UInt(0xC67B5C))
 
     var body: some View {
-        switch appState.activeScreen {
-        case .launch:
-            LaunchView()
-        case .onboarding:
-            OnboardingView()
-        default:
-            TabView(selection: $selectedTab) {
-                Tab("Today", systemImage: "sun.max.fill", value: 0) {
-                    DailyQuestionView()
-                }
+        ZStack {
+            Color(hex: UInt(0xFBF8F3))
+                .ignoresSafeArea()
 
-                Tab("Coverage", systemImage: "chart.bar.fill", value: 1) {
-                    CoverageView()
-                }
+            switch appState.activeScreen {
+            case .launch:
+                LaunchView()
+            case .onboarding:
+                OnboardingView()
+            default:
+                TabView(selection: $selectedTab) {
+                    Tab("Today", systemImage: "sun.max.fill", value: 0) {
+                        DailyQuestionView()
+                    }
 
-                Tab("Answers", systemImage: "book.fill", value: 2) {
-                    AnswersBrowserView()
-                }
+                    Tab("Coverage", systemImage: "chart.bar.fill", value: 1) {
+                        CoverageView()
+                    }
 
-                Tab("Settings", systemImage: "gearshape.fill", value: 3) {
-                    SettingsView()
+                    Tab("Answers", systemImage: "book.fill", value: 2) {
+                        AnswersBrowserView()
+                    }
+
+                    Tab("Settings", systemImage: "gearshape.fill", value: 3) {
+                        SettingsView()
+                    }
                 }
+                .tint(terracotta)
             }
-            .tint(terracotta)
         }
     }
 }

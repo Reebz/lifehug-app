@@ -49,14 +49,15 @@ final class ModelDownloader {
 
     /// Whether the model files exist on disk (quick check, does not verify integrity).
     var isModelCached: Bool {
+        // HubApi stores downloads in {downloadBase}/huggingface/hub/models--{org}--{model}/
         let hubDir = storage.modelsDirectory
             .appendingPathComponent("huggingface")
-            .appendingPathComponent("models")
+            .appendingPathComponent("hub")
         let fm = FileManager.default
         guard fm.fileExists(atPath: hubDir.path) else { return false }
-        // Check if there's at least one directory inside (the model repo)
+        // Check if there's at least one model directory inside
         let contents = (try? fm.contentsOfDirectory(atPath: hubDir.path)) ?? []
-        return !contents.isEmpty
+        return contents.contains { $0.hasPrefix("models--") }
     }
 
     /// Start (or resume) the model download. Safe to call multiple times.

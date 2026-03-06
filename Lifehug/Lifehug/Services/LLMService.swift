@@ -25,6 +25,12 @@ final class LLMService {
     // MARK: - Model Loading
 
     func loadModel() async throws {
+        #if targetEnvironment(simulator)
+        // MLX requires a real Metal GPU — skip loading on simulator.
+        isLoaded = true
+        logger.info("Simulator detected — LLM model loading skipped, using mock responses")
+        return
+        #else
         guard modelContainer == nil else {
             isLoaded = true
             return
@@ -48,6 +54,7 @@ final class LLMService {
         self.modelContainer = container
         isLoaded = true
         logger.info("LLM model loaded successfully")
+        #endif
     }
 
     func unloadModel() {
@@ -109,6 +116,13 @@ final class LLMService {
     }
 
     func respond(to userMessage: String) async throws -> String {
+        #if targetEnvironment(simulator)
+        isGenerating = true
+        // Simulate a brief delay for realism
+        try? await Task.sleep(for: .milliseconds(500))
+        isGenerating = false
+        return "That's really interesting — tell me more about what that meant to you."
+        #else
         guard let session = chatSession else {
             throw LLMError.noActiveSession
         }
@@ -119,6 +133,7 @@ final class LLMService {
         nonisolated(unsafe) let unsafeSession = session
         let result = try await unsafeSession.respond(to: userMessage)
         return cleanResponse(result)
+        #endif
     }
 
     // MARK: - Text Cleaning

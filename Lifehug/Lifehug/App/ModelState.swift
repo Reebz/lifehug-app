@@ -32,6 +32,13 @@ final class ModelState {
 
     /// Called once from LaunchView's .task to set up the initial state.
     func prepareOnLaunch() async {
+        #if targetEnvironment(simulator)
+        // MLX requires a real Metal GPU — the simulator will crash during model init.
+        // Skip download/load entirely and let the app run with mock LLM responses.
+        status = .ready
+        isLoaded = true
+        return
+        #else
         if downloader.isModelCached {
             // Model files exist — try to load from cache
             status = .loading
@@ -46,6 +53,7 @@ final class ModelState {
         }
         // Not yet downloaded; stay at .notDownloaded and let user tap Download.
         syncFromDownloader()
+        #endif
     }
 
     // MARK: - Download Control
