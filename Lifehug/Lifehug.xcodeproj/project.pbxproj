@@ -1,0 +1,530 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */; };
+		0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2FC2AA88E660C6579714592 /* ModelState.swift */; };
+		2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */; };
+		386C56613644FB974AE75D35 /* RotationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */; };
+		431504EABD1CC957BD07EC54 /* QuestionBankParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D493FF79F375789BDDEEE97F /* QuestionBankParserTests.swift */; };
+		56B11781A20C905A43854248 /* RotationEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */; };
+		5B0ACD7DB88F19DC6AF2D364 /* LifehugApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F23D7C44A9B7E40F5E484F5 /* LifehugApp.swift */; };
+		64BE5678CFC1D04E22B97665 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 5A083C1C74C722B462FD45CE /* MLXLMCommon */; };
+		65724C18853DD3C7A601F3D2 /* Category.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40BEBD9BD593024E69189095 /* Category.swift */; };
+		7157DBDAF64BC327E8655DEB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DD8789D13CE57EEBA440D2 /* AppState.swift */; };
+		71BAE78CF4850C8A4A02619C /* Answer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB777411766BFD0D14672BA0 /* Answer.swift */; };
+		767CD9AD5950A4FAC98BEEB4 /* QuestionBankParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FF8C9FFC395C89144EAA65 /* QuestionBankParser.swift */; };
+		78A769BE5C53C3D531638291 /* StorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 832C05A15AE3D2EE8D85891A /* StorageService.swift */; };
+		8A41A674F078021032690881 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 62EACE1EF4D28E7196BCBBE2 /* MLXLLM */; };
+		8B249EBEE07238316B201355 /* UserConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D74E19C50585A4B0A3071AF8 /* UserConfig.swift */; };
+		8E03E4B4A4D03CE571AF737C /* AnswerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0CA3C99288FFD05D1FE31B /* AnswerTests.swift */; };
+		E5FE6BC7CE0608BFCEA0637E /* RotationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */; };
+		FECEB8F8746506DC6C127A20 /* Question.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B265E197F7FA3E423981751 /* Question.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1B96B0333D96ED933B7720B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 99AE8DD97E62B2EBF5977870 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4EE37FC49107B581C6B2909E;
+			remoteInfo = Lifehug;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationEngine.swift; sourceTree = "<group>"; };
+		2901045633A611FB61E117EC /* Lifehug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lifehug.entitlements; sourceTree = "<group>"; };
+		2F23D7C44A9B7E40F5E484F5 /* LifehugApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifehugApp.swift; sourceTree = "<group>"; };
+		32DD8789D13CE57EEBA440D2 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		40BEBD9BD593024E69189095 /* Category.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Category.swift; sourceTree = "<group>"; };
+		447EF5D17ABD64C7CC73ECA6 /* Lifehug.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lifehug.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B265E197F7FA3E423981751 /* Question.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Question.swift; sourceTree = "<group>"; };
+		5A4D2C1323F715B58D861BBF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationEngineTests.swift; sourceTree = "<group>"; };
+		82A7397DB97FD22971C5D0A5 /* LifehugTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LifehugTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionState.swift; sourceTree = "<group>"; };
+		832C05A15AE3D2EE8D85891A /* StorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageService.swift; sourceTree = "<group>"; };
+		B3FF8C9FFC395C89144EAA65 /* QuestionBankParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionBankParser.swift; sourceTree = "<group>"; };
+		BE0CA3C99288FFD05D1FE31B /* AnswerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerTests.swift; sourceTree = "<group>"; };
+		C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D2FC2AA88E660C6579714592 /* ModelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelState.swift; sourceTree = "<group>"; };
+		D493FF79F375789BDDEEE97F /* QuestionBankParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionBankParserTests.swift; sourceTree = "<group>"; };
+		D74E19C50585A4B0A3071AF8 /* UserConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserConfig.swift; sourceTree = "<group>"; };
+		DB777411766BFD0D14672BA0 /* Answer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Answer.swift; sourceTree = "<group>"; };
+		EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationState.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		540D0409F00CF0F69D3F02FC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A41A674F078021032690881 /* MLXLLM in Frameworks */,
+				64BE5678CFC1D04E22B97665 /* MLXLMCommon in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		28766C504C7B434CB9F4270E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				447EF5D17ABD64C7CC73ECA6 /* Lifehug.app */,
+				82A7397DB97FD22971C5D0A5 /* LifehugTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4387435FFCF64E5F3FBB7539 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B3FF8C9FFC395C89144EAA65 /* QuestionBankParser.swift */,
+				0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */,
+				832C05A15AE3D2EE8D85891A /* StorageService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		71D4591ED5DB6CBBCA104B78 /* Lifehug */ = {
+			isa = PBXGroup;
+			children = (
+				5A4D2C1323F715B58D861BBF /* Info.plist */,
+				2901045633A611FB61E117EC /* Lifehug.entitlements */,
+				C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */,
+				9AD41637D83D39BDB5CCF433 /* App */,
+				DC64EC3F994A2E28D049B6C5 /* Models */,
+				4387435FFCF64E5F3FBB7539 /* Services */,
+			);
+			path = Lifehug;
+			sourceTree = "<group>";
+		};
+		8A9C49F9DE7FC1BD44A0145D = {
+			isa = PBXGroup;
+			children = (
+				71D4591ED5DB6CBBCA104B78 /* Lifehug */,
+				A3FD4AEC9F3FD36D2ABE9AC3 /* LifehugTests */,
+				28766C504C7B434CB9F4270E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9AD41637D83D39BDB5CCF433 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				32DD8789D13CE57EEBA440D2 /* AppState.swift */,
+				2F23D7C44A9B7E40F5E484F5 /* LifehugApp.swift */,
+				D2FC2AA88E660C6579714592 /* ModelState.swift */,
+				830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A3FD4AEC9F3FD36D2ABE9AC3 /* LifehugTests */ = {
+			isa = PBXGroup;
+			children = (
+				BE0CA3C99288FFD05D1FE31B /* AnswerTests.swift */,
+				D493FF79F375789BDDEEE97F /* QuestionBankParserTests.swift */,
+				767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */,
+			);
+			path = LifehugTests;
+			sourceTree = "<group>";
+		};
+		DC64EC3F994A2E28D049B6C5 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				DB777411766BFD0D14672BA0 /* Answer.swift */,
+				40BEBD9BD593024E69189095 /* Category.swift */,
+				4B265E197F7FA3E423981751 /* Question.swift */,
+				EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */,
+				D74E19C50585A4B0A3071AF8 /* UserConfig.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4EE37FC49107B581C6B2909E /* Lifehug */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 73BF6D1C18DE44EC1EB6BDA4 /* Build configuration list for PBXNativeTarget "Lifehug" */;
+			buildPhases = (
+				23AEA49D06D62D9FB70EA940 /* Sources */,
+				E1DD4F3182CCA096EB96DAC6 /* Resources */,
+				540D0409F00CF0F69D3F02FC /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Lifehug;
+			packageProductDependencies = (
+				62EACE1EF4D28E7196BCBBE2 /* MLXLLM */,
+				5A083C1C74C722B462FD45CE /* MLXLMCommon */,
+			);
+			productName = Lifehug;
+			productReference = 447EF5D17ABD64C7CC73ECA6 /* Lifehug.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D065C620C626891DB42F5FDA /* LifehugTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 26D88923D4F73C8B2A88A672 /* Build configuration list for PBXNativeTarget "LifehugTests" */;
+			buildPhases = (
+				8DD401563A1473BAAF41EE9E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C175E78208D3D7C8EBB7BC51 /* PBXTargetDependency */,
+			);
+			name = LifehugTests;
+			packageProductDependencies = (
+			);
+			productName = LifehugTests;
+			productReference = 82A7397DB97FD22971C5D0A5 /* LifehugTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		99AE8DD97E62B2EBF5977870 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 3D710A9ECDFD4236EFC72941 /* Build configuration list for PBXProject "Lifehug" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 8A9C49F9DE7FC1BD44A0145D;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 28766C504C7B434CB9F4270E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4EE37FC49107B581C6B2909E /* Lifehug */,
+				D065C620C626891DB42F5FDA /* LifehugTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E1DD4F3182CCA096EB96DAC6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		23AEA49D06D62D9FB70EA940 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				71BAE78CF4850C8A4A02619C /* Answer.swift in Sources */,
+				7157DBDAF64BC327E8655DEB /* AppState.swift in Sources */,
+				65724C18853DD3C7A601F3D2 /* Category.swift in Sources */,
+				5B0ACD7DB88F19DC6AF2D364 /* LifehugApp.swift in Sources */,
+				0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */,
+				FECEB8F8746506DC6C127A20 /* Question.swift in Sources */,
+				767CD9AD5950A4FAC98BEEB4 /* QuestionBankParser.swift in Sources */,
+				386C56613644FB974AE75D35 /* RotationEngine.swift in Sources */,
+				E5FE6BC7CE0608BFCEA0637E /* RotationState.swift in Sources */,
+				00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */,
+				78A769BE5C53C3D531638291 /* StorageService.swift in Sources */,
+				8B249EBEE07238316B201355 /* UserConfig.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8DD401563A1473BAAF41EE9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8E03E4B4A4D03CE571AF737C /* AnswerTests.swift in Sources */,
+				431504EABD1CC957BD07EC54 /* QuestionBankParserTests.swift in Sources */,
+				56B11781A20C905A43854248 /* RotationEngineTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C175E78208D3D7C8EBB7BC51 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4EE37FC49107B581C6B2909E /* Lifehug */;
+			targetProxy = 1B96B0333D96ED933B7720B7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		511D6BE8325D60D7A809F80F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		758DF61F35F595F44C1CFEB7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A073F74BCC44BD432F7A9210 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lifehug.app/Lifehug";
+			};
+			name = Debug;
+		};
+		C105BA32D3D32E35CCB760EB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lifehug.app/Lifehug";
+			};
+			name = Release;
+		};
+		D209E9EA05759501368FD6DD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lifehug/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D83A2093F8D7BC8CDEFF7B94 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lifehug/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lifehug.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		26D88923D4F73C8B2A88A672 /* Build configuration list for PBXNativeTarget "LifehugTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A073F74BCC44BD432F7A9210 /* Debug */,
+				C105BA32D3D32E35CCB760EB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3D710A9ECDFD4236EFC72941 /* Build configuration list for PBXProject "Lifehug" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				758DF61F35F595F44C1CFEB7 /* Debug */,
+				511D6BE8325D60D7A809F80F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		73BF6D1C18DE44EC1EB6BDA4 /* Build configuration list for PBXNativeTarget "Lifehug" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D83A2093F8D7BC8CDEFF7B94 /* Debug */,
+				D209E9EA05759501368FD6DD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.30.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5A083C1C74C722B462FD45CE /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		62EACE1EF4D28E7196BCBBE2 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 99AE8DD97E62B2EBF5977870 /* Project object */;
+}

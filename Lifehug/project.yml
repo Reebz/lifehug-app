@@ -1,0 +1,64 @@
+name: Lifehug
+options:
+  bundleIdPrefix: com.lifehug
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+
+packages:
+  mlx-swift-lm:
+    url: https://github.com/ml-explore/mlx-swift-lm
+    from: "2.30.0"
+  # kokoro-ios: re-enable in Phase 3 (Voice Pipeline)
+  # kokoro-ios:
+  #   url: https://github.com/mlalma/kokoro-ios
+  #   from: "1.0.8"
+
+targets:
+  Lifehug:
+    type: application
+    platform: iOS
+    sources:
+      - path: Lifehug
+        excludes:
+          - "**/*.md"
+    resources:
+      - path: Lifehug/Resources/question-bank.md
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Lifehug/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.lifehug.app
+        CODE_SIGN_ENTITLEMENTS: Lifehug/Lifehug.entitlements
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 1
+    dependencies:
+      - package: mlx-swift-lm
+        product: MLXLLM
+      - package: mlx-swift-lm
+        product: MLXLMCommon
+      # - package: kokoro-ios  # re-enable in Phase 3
+      #   product: KokoroSwift
+    entitlements:
+      path: Lifehug/Lifehug.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
+    preBuildScripts: []
+
+  LifehugTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: LifehugTests
+    dependencies:
+      - target: Lifehug
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lifehug.app.tests
+        GENERATE_INFOPLIST_FILE: YES
