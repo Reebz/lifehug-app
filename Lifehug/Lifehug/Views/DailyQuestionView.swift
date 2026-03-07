@@ -214,9 +214,6 @@ struct DailyQuestionView: View {
     // MARK: - Voice Recording
 
     private func startRecording() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            session.isRecording = true
-        }
         session.draftTranscript = ""
 
         recordingTask = Task {
@@ -224,16 +221,21 @@ struct DailyQuestionView: View {
                 await sttService.requestAuthorization()
             }
             guard sttService.isAuthorized else {
-                session.isRecording = false
                 loadError = sttService.error ?? "Microphone or speech recognition not authorized."
                 return
+            }
+
+            withAnimation(.easeOut(duration: 0.2)) {
+                session.isRecording = true
             }
 
             let stream = sttService.startListening()
 
             // Check if STT hit an error during startup
             if let sttError = sttService.error {
-                session.isRecording = false
+                withAnimation(.easeOut(duration: 0.2)) {
+                    session.isRecording = false
+                }
                 loadError = sttError
                 return
             }

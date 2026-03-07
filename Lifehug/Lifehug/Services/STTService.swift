@@ -78,6 +78,9 @@ final class STTService {
             }
         }
         #else
+        // Clear any previous error
+        self.error = nil
+
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
             continuation.onTermination = { @Sendable _ in
@@ -92,6 +95,7 @@ final class STTService {
         } catch {
             logger.error("Failed to start recognition: \(error)")
             self.error = "Failed to start speech recognition: \(error.localizedDescription)"
+            isRecording = false
             continuation?.finish()
         }
 
@@ -125,7 +129,9 @@ final class STTService {
         recognitionTask = nil
 
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        // Deactivate first to reset any stale audio session state
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
         let engine = AVAudioEngine()
@@ -141,10 +147,22 @@ final class STTService {
 
         // Guard against invalid audio format (0 channels = no mic access)
         guard recordingFormat.channelCount > 0 else {
+            logger.error("Audio format has 0 channels — mic not available. Format: \(recordingFormat)")
             throw STTError.microphoneUnavailable
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+        // Use a standard format if the hardware format has an unusual sample rate
+        let tapFormat: AVAudioFormat
+        if recordingFormat.sampleRate > 0 {
+            tapFormat = recordingFormat
+        } else {
+            guard let fallback = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1) else {
+                throw STTError.microphoneUnavailable
+            }
+            tapFormat = fallback
+        }
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: tapFormat) { buffer, _ in
             request.append(buffer)
         }
 
