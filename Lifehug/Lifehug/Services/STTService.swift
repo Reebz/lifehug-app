@@ -23,7 +23,6 @@ final class STTService {
 
     init() {
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        recognizer?.supportsOnDeviceRecognition = true
     }
 
     func requestAuthorization() async {
@@ -125,11 +124,21 @@ final class STTService {
             throw STTError.recognizerUnavailable
         }
 
+        // Verify microphone hardware is actually available
+        let audioSession = AVAudioSession.sharedInstance()
+        guard audioSession.isInputAvailable else {
+            logger.error("No audio input available on this device")
+            throw STTError.microphoneUnavailable
+        }
+
+        // Clean up any prior recognition state
         recognitionTask?.cancel()
         recognitionTask = nil
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine = nil
 
-        let audioSession = AVAudioSession.sharedInstance()
-        // Deactivate first to reset any stale audio session state
+        // Configure audio session
         try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
         try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
@@ -139,30 +148,16 @@ final class STTService {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
+        // Only require on-device if the recognizer supports it
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
         self.recognitionRequest = request
 
+        // Install tap with nil format — lets the system use the hardware's native format.
+        // Passing an explicit format can crash with NSException on format mismatch.
         let inputNode = engine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        // Guard against invalid audio format (0 channels = no mic access)
-        guard recordingFormat.channelCount > 0 else {
-            logger.error("Audio format has 0 channels — mic not available. Format: \(recordingFormat)")
-            throw STTError.microphoneUnavailable
-        }
-
-        // Use a standard format if the hardware format has an unusual sample rate
-        let tapFormat: AVAudioFormat
-        if recordingFormat.sampleRate > 0 {
-            tapFormat = recordingFormat
-        } else {
-            guard let fallback = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1) else {
-                throw STTError.microphoneUnavailable
-            }
-            tapFormat = fallback
-        }
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: tapFormat) { buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
             request.append(buffer)
         }
 
@@ -171,15 +166,13 @@ final class STTService {
         isRecording = true
 
         // Track accumulated transcript for iOS 18 non-cumulative results workaround
-        var accumulatedTranscript = ""
+        nonisolated(unsafe) var accumulatedTranscript = ""
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
 
             if let result {
                 let text = result.bestTranscription.formattedString
-                // iOS 18 workaround: results may be non-cumulative
-                // Use the longer of accumulated vs new result
                 if text.count > accumulatedTranscript.count {
                     accumulatedTranscript = text
                 }

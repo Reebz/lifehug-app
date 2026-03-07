@@ -156,6 +156,19 @@ struct SettingsView: View {
             }
             .listRowBackground(Color.white)
 
+            if case .notDownloaded = modelState.status {
+                Button {
+                    modelState.triggerDownload()
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.down.circle")
+                        Text("Re-download Model")
+                    }
+                    .foregroundStyle(Theme.terracotta)
+                }
+                .listRowBackground(Color.white)
+            }
+
             Button {
                 showDeleteModelConfirmation = true
             } label: {
@@ -306,13 +319,7 @@ struct SettingsView: View {
     }
 
     private func deleteModelCache() {
-        let modelsDir = storage.modelsDirectory
-        let fm = FileManager.default
-        if let contents = try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) {
-            for file in contents {
-                try? fm.removeItem(at: file)
-            }
-        }
+        modelState.deleteModelCache()
         computeStorageSizes()
     }
 

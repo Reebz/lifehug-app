@@ -70,6 +70,12 @@ final class ModelState {
         syncFromDownloader()
     }
 
+    /// Delete cached model files and reset to not-downloaded state.
+    func deleteModelCache() {
+        downloader.deleteCache()
+        syncFromDownloader()
+    }
+
     // MARK: - Scene Phase Handling
 
     /// Call when the app returns to foreground to detect model eviction.

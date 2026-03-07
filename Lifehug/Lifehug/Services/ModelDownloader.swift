@@ -105,6 +105,14 @@ final class ModelDownloader {
         }
     }
 
+    /// Delete cached model files and reset to idle state.
+    func deleteCache() {
+        cancelDownload()
+        clearModelFiles()
+        modelContainer = nil
+        phase = .idle
+    }
+
     /// Re-check model availability (e.g. after returning from background).
     /// iOS can evict large files under memory pressure.
     func recheckModelAvailability() async {
