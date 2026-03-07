@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var reminderEnabled: Bool = false
     @State private var reminderTime: Date = defaultReminderTime()
     @State private var notificationDenied: Bool = false
+    @State private var iCloudBackupEnabled: Bool = StorageService.iCloudBackupEnabled
     @State private var showDeleteModelConfirmation = false
     @State private var showResetConfirmation = false
     @State private var modelSizeMB: String = "---"
@@ -21,6 +22,7 @@ struct SettingsView: View {
             Form {
                 profileSection
                 notificationsSection
+                privacySection
                 modelSection
                 dataSection
                 aboutSection
@@ -114,12 +116,38 @@ struct SettingsView: View {
                         .foregroundStyle(Theme.mutedRose)
                     Text("Notifications are disabled. Please enable them in Settings to receive daily reminders.")
                         .font(.caption)
-                        .foregroundStyle(Theme.warmGray)
+                        .foregroundStyle(Theme.walnut)
                 }
                 .listRowBackground(Color.white)
             }
         } header: {
             Text("Reminders")
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
+        }
+    }
+
+    // MARK: - Privacy Section
+
+    private var privacySection: some View {
+        Section {
+            Toggle(isOn: $iCloudBackupEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("iCloud Backup")
+                        .foregroundStyle(Theme.warmCharcoal)
+                    Text("Include answers in iCloud backups")
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
+            }
+            .tint(Theme.terracotta)
+            .onChange(of: iCloudBackupEnabled) { _, enabled in
+                StorageService.iCloudBackupEnabled = enabled
+                try? storage.setupDirectories()
+            }
+            .listRowBackground(Color.white)
+        } header: {
+            Text("Privacy")
                 .font(Theme.subheadlineSerifFont)
                 .foregroundStyle(Theme.warmCharcoal)
         }
@@ -134,7 +162,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(modelStatusText)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
             }
             .listRowBackground(Color.white)
 
@@ -143,7 +171,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(modelSizeMB)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
             }
             .listRowBackground(Color.white)
 
@@ -152,7 +180,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(storageSizeMB)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
             }
             .listRowBackground(Color.white)
 
@@ -227,7 +255,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
                 Text(appVersion)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
             }
             .listRowBackground(Color.white)
         } header: {

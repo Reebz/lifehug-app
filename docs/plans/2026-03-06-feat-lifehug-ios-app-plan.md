@@ -593,17 +593,17 @@ For MVP, use a structured SwiftUI form rather than LLM-generated categories. A 1
 
 **Error Handling & Edge Cases:**
 - [ ] Disk full: check before writing, alert user
-- [ ] Model evicted after backgrounding: detect via `ModelState.isLoaded`, reload with "Warming up..." UI
+- [x] Model evicted after backgrounding: detect via `ModelState.isLoaded`, reload with "Warming up..." UI
 - [ ] Audio session interruption (phone call): pause gracefully, resume after
 - [ ] SFSpeechRecognizer unavailable: show clear error
 - [ ] Memory circuit breaker: degrade Kokoro to AVSpeechSynthesizer if `os_proc_available_memory() < 300MB`
 
 **Accessibility:**
-- [ ] All interactive elements have accessibility labels
-- [ ] Conversation transcript accessible to VoiceOver
+- [x] All interactive elements have accessibility labels
+- [x] Conversation transcript accessible to VoiceOver
 - [ ] Dynamic Type support for all text
-- [ ] Mic button: "Start recording your answer" / "Stop recording"
-- [ ] Coverage indicators use text labels, not just colour
+- [x] Mic button: "Start recording your answer" / "Stop recording"
+- [x] Coverage indicators use text labels, not just colour
 
 **Performance Testing (on real iPhone 15 Pro):**
 - [ ] Time from "user stops speaking" to "first TTS audio" — target < 2s
@@ -614,15 +614,15 @@ For MVP, use a structured SwiftUI form rather than LLM-generated categories. A 1
 **TestFlight Prep:**
 - [ ] Bundle ID: `com.lifehug.app`
 - [ ] Automatic signing
-- [ ] Privacy manifest: no data collection, declare `NSPrivacyAccessedAPIType` for UserDefaults and file timestamps
+- [x] Privacy manifest: no data collection, declare `NSPrivacyAccessedAPIType` for UserDefaults and file timestamps
 - [ ] App icon and launch screen (warm cream background, simple wordmark)
 - [ ] Archive, upload, add internal testers
 - [ ] Verify clean install on second test device
 
 **Quality Gates:**
 - [ ] No crashes on any user flow
-- [ ] All unit tests passing
-- [ ] Works fully offline after model download
+- [x] All unit tests passing
+- [x] Works fully offline after model download
 - [ ] Answer files verified compatible with desktop tool
 - [ ] Memory stays under 1.5GB during normal use
 - [ ] `NSFileProtectionComplete` verified (files unreadable when device locked)

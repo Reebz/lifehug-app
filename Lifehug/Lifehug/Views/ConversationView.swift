@@ -79,7 +79,7 @@ struct ConversationView: View {
                                 .tint(Theme.terracotta)
                             Text("Thinking...")
                                 .font(.caption)
-                                .foregroundStyle(Theme.warmGray)
+                                .foregroundStyle(Theme.walnut)
                             Spacer()
                         }
                         .padding(.horizontal, 16)
@@ -104,7 +104,7 @@ struct ConversationView: View {
                 Text("\(String(question.category)): \(cat.name)")
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
             }
 
             Text(question.text)

@@ -68,7 +68,7 @@ struct CoverageView: View {
                         .frame(width: 12, height: 12)
                     Text(statusLabel)
                         .font(.caption2)
-                        .foregroundStyle(Theme.warmGray)
+                        .foregroundStyle(Theme.walnut)
                 }
 
                 Text("\(String(letter)): \(cat.name)")
@@ -105,7 +105,7 @@ struct CoverageView: View {
         return VStack(spacing: 8) {
             Text("Total Questions Answered")
                 .font(Theme.subheadlineSerifFont)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
 
             Text("\(totalAnswered) / \(totalQuestions)")
                 .font(.title.bold())
@@ -200,7 +200,7 @@ private struct CategoryDetailSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(question.id)
                                 .font(.caption)
-                                .foregroundStyle(Theme.warmGray)
+                                .foregroundStyle(Theme.walnut)
                             Text(question.text)
                                 .font(Theme.bodySerifFont)
                                 .foregroundStyle(Theme.warmCharcoal)

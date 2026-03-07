@@ -38,7 +38,7 @@ struct LaunchView: View {
 
             Text("Thoughtful questions for a\nmore examined life")
                 .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }
@@ -72,7 +72,7 @@ struct LaunchView: View {
         VStack(spacing: 20) {
             Text("Lifehug runs entirely on your device.\nA one-time download is needed.")
                 .font(.subheadline)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 
@@ -112,7 +112,7 @@ struct LaunchView: View {
                 HStack {
                     Text(progressLabel)
                         .font(.caption)
-                        .foregroundStyle(Theme.warmGray)
+                        .foregroundStyle(Theme.walnut)
                         .monospacedDigit()
 
                     Spacer()
@@ -126,7 +126,7 @@ struct LaunchView: View {
 
             Text("Downloading model...")
                 .font(.subheadline)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
         }
     }
 
@@ -149,7 +149,7 @@ struct LaunchView: View {
 
             Text("Preparing Lifehug...")
                 .font(.subheadline)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
         }
     }
 
@@ -188,7 +188,7 @@ struct LaunchView: View {
 
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 

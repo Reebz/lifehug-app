@@ -5,6 +5,15 @@ final class StorageService {
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Storage")
     private let fileManager = FileManager.default
 
+    // MARK: - iCloud Backup Preference
+
+    private static let iCloudBackupKey = "iCloudBackupEnabled"
+
+    static var iCloudBackupEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: iCloudBackupKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: iCloudBackupKey) }
+    }
+
     // MARK: - Directory Paths
 
     /// Application Support — models and state (not visible in Files app)
@@ -72,11 +81,21 @@ final class StorageService {
             )
         }
 
-        // Exclude models from iCloud backup
+        // Always exclude models from iCloud backup (large binary files)
         var modelsURL = modelsDirectory
-        var resourceValues = URLResourceValues()
-        resourceValues.isExcludedFromBackup = true
-        try modelsURL.setResourceValues(resourceValues)
+        var modelsResourceValues = URLResourceValues()
+        modelsResourceValues.isExcludedFromBackup = true
+        try modelsURL.setResourceValues(modelsResourceValues)
+
+        // Exclude user data from iCloud backup if user has disabled it
+        if !Self.iCloudBackupEnabled {
+            let userDataDirs = [answersDirectory, stateDirectory, documentsDirectory]
+            for var dirURL in userDataDirs {
+                var rv = URLResourceValues()
+                rv.isExcludedFromBackup = true
+                try dirURL.setResourceValues(rv)
+            }
+        }
 
         logger.info("Storage directories configured")
     }
@@ -175,7 +194,7 @@ final class StorageService {
     private func atomicWrite(data: Data, to url: URL) throws {
         let tempURL = url.deletingLastPathComponent()
             .appendingPathComponent(UUID().uuidString)
-        try data.write(to: tempURL, options: .atomic)
+        try data.write(to: tempURL, options: [.atomic, .completeFileProtection])
         if fileManager.fileExists(atPath: url.path) {
             _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
         } else {

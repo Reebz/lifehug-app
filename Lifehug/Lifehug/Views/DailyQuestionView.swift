@@ -68,7 +68,7 @@ struct DailyQuestionView: View {
                     Text("\(String(question.category)): \(cat.name)")
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundStyle(Theme.warmGray)
+                        .foregroundStyle(Theme.walnut)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
                         .background(
@@ -80,7 +80,7 @@ struct DailyQuestionView: View {
         } else if let error = loadError {
             Text(error)
                 .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
         } else {
             ProgressView()
@@ -138,7 +138,7 @@ struct DailyQuestionView: View {
                             .frame(width: 8, height: 8)
                         Text("Listening...")
                             .font(.caption)
-                            .foregroundStyle(Theme.warmGray)
+                            .foregroundStyle(Theme.walnut)
                     }
                 }
 
@@ -165,7 +165,7 @@ struct DailyQuestionView: View {
         } label: {
             Text("Type instead")
                 .font(.subheadline)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
         }
         .buttonStyle(.plain)
         .disabled(session.currentQuestion == nil)
@@ -191,7 +191,7 @@ struct DailyQuestionView: View {
                     }
                 }
                 .font(.subheadline)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
 
                 Button {
                     submitTypedAnswer()
@@ -265,7 +265,10 @@ struct DailyQuestionView: View {
             session.isRecording = false
         }
 
-        let text = session.draftTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Use sttService.partialTranscript as fallback — the stream may not have
+        // delivered the latest partial before the task was cancelled.
+        let text = (session.draftTranscript.isEmpty ? sttService.partialTranscript : session.draftTranscript)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
             session.addTurn(role: .user, text: text)
             navigateToConversation = true

@@ -75,7 +75,7 @@ struct OnboardingView: View {
 
             Text("Capture your life story through daily questions and voice conversations.")
                 .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }
@@ -195,7 +195,7 @@ struct OnboardingView: View {
 
             Text("Let's start with your first question.")
                 .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }

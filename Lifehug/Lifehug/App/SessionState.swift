@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 @Observable
 @MainActor
@@ -8,11 +9,14 @@ final class SessionState {
     var isRecording: Bool = false
     var draftTranscript: String = ""
 
+    private let logger = Logger(subsystem: "com.lifehug.app", category: "Session")
+
     // MARK: - Conversation Management
 
     func addTurn(role: ConversationTurn.Role, text: String) {
         let turn = ConversationTurn(role: role, text: text, timestamp: Date())
         conversationTurns.append(turn)
+        autoSave()
     }
 
     /// Compile all user turns into a single coherent answer text.
@@ -27,6 +31,45 @@ final class SessionState {
         conversationTurns = []
         isRecording = false
         draftTranscript = ""
+        clearAutoSave()
+    }
+
+    // MARK: - Auto-Save
+
+    private static let autoSaveKey = "sessionAutoSave"
+
+    func autoSave() {
+        guard currentQuestion != nil, !conversationTurns.isEmpty else { return }
+        let saveable = conversationTurns.map { SaveableTurn(role: $0.role == .user ? "user" : "assistant", text: $0.text, timestamp: $0.timestamp) }
+        let payload = AutoSavePayload(questionID: currentQuestion?.id, turns: saveable)
+        if let data = try? JSONEncoder().encode(payload) {
+            UserDefaults.standard.set(data, forKey: Self.autoSaveKey)
+        }
+    }
+
+    func restoreAutoSave() {
+        guard let data = UserDefaults.standard.data(forKey: Self.autoSaveKey),
+              let payload = try? JSONDecoder().decode(AutoSavePayload.self, from: data) else { return }
+
+        conversationTurns = payload.turns.map {
+            ConversationTurn(role: $0.role == "user" ? .user : .assistant, text: $0.text, timestamp: $0.timestamp)
+        }
+        logger.info("Restored \(self.conversationTurns.count) conversation turns from auto-save")
+    }
+
+    private func clearAutoSave() {
+        UserDefaults.standard.removeObject(forKey: Self.autoSaveKey)
+    }
+
+    private struct SaveableTurn: Codable {
+        let role: String
+        let text: String
+        let timestamp: Date
+    }
+
+    private struct AutoSavePayload: Codable {
+        let questionID: String?
+        let turns: [SaveableTurn]
     }
 }
 

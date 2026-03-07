@@ -46,7 +46,7 @@ struct AnswersBrowserView: View {
                 .foregroundStyle(Theme.warmCharcoal)
             Text("Your answers will appear here after you respond to your first question.")
                 .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmGray)
+                .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
@@ -94,12 +94,12 @@ struct AnswersBrowserView: View {
 
                     Text(formattedDate(answer.answeredDate))
                         .font(.caption)
-                        .foregroundStyle(Theme.warmGray)
+                        .foregroundStyle(Theme.walnut)
                 }
 
                 Text(String(answer.answerText.prefix(100)))
                     .font(.caption)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
                     .lineLimit(2)
             }
             .padding(.vertical, 4)
@@ -191,7 +191,7 @@ struct AnswerDetailView: View {
                         Label(formattedDate(answer.answeredDate), systemImage: "calendar")
                     }
                     .font(.caption)
-                    .foregroundStyle(Theme.warmGray)
+                    .foregroundStyle(Theme.walnut)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -239,7 +239,7 @@ struct AnswerDetailView: View {
                                     .foregroundStyle(Theme.terracotta)
                                 Text(fq.text)
                                     .font(.caption)
-                                    .foregroundStyle(Theme.warmGray)
+                                    .foregroundStyle(Theme.walnut)
                             }
                         }
                     }
@@ -255,7 +255,7 @@ struct AnswerDetailView: View {
                 if answer.source == .voice {
                     Label("Transcribed from voice", systemImage: "mic")
                         .font(.caption)
-                        .foregroundStyle(Theme.warmGray)
+                        .foregroundStyle(Theme.walnut)
                 }
             }
             .padding()

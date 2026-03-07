@@ -17,16 +17,16 @@ enum Theme {
     static let cardBackground = Color.white
     static let cardShadow = Color.black.opacity(0.05)
 
-    // MARK: - Typography
+    // MARK: - Typography (Dynamic Type)
 
-    static let displayFont: Font = .system(size: 36, weight: .light, design: .serif)
-    static let titleFont: Font = .system(size: 24, weight: .regular, design: .serif)
-    static let title2Font: Font = .system(size: 22, weight: .regular, design: .serif)
-    static let title3Font: Font = .system(size: 20, weight: .regular, design: .serif)
-    static let headlineFont: Font = .system(size: 17, weight: .semibold, design: .serif)
-    static let bodySerifFont: Font = .system(size: 17, weight: .regular, design: .serif)
-    static let subheadlineSerifFont: Font = .system(size: 15, weight: .regular, design: .serif)
-    static let captionSerifFont: Font = .system(size: 13, weight: .regular, design: .serif)
+    static let displayFont: Font = .system(.largeTitle, design: .serif).weight(.light)
+    static let titleFont: Font = .system(.title, design: .serif)
+    static let title2Font: Font = .system(.title2, design: .serif)
+    static let title3Font: Font = .system(.title3, design: .serif)
+    static let headlineFont: Font = .system(.headline, design: .serif)
+    static let bodySerifFont: Font = .system(.body, design: .serif)
+    static let subheadlineSerifFont: Font = .system(.subheadline, design: .serif)
+    static let captionSerifFont: Font = .system(.caption, design: .serif)
 
     // MARK: - Spacing
 

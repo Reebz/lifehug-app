@@ -127,6 +127,7 @@ final class VoicePipeline {
         state = .processing
         responseChunks = ""
         sentenceBuffer = SentenceBuffer()
+        checkMemoryPressure()
 
         activeTask?.cancel()
         activeTask = Task {
@@ -170,7 +171,7 @@ final class VoicePipeline {
 
     func checkMemoryPressure() {
         let available = os_proc_available_memory()
-        if available < 300_000_000 { // 300MB
+        if available < 500_000_000 { // 500MB
             logger.warning("Memory low (\(available / 1_000_000)MB available), switching to system TTS")
             ttsService.degradeToSystemTTS()
         }

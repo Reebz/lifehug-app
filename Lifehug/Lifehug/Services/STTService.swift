@@ -16,10 +16,7 @@ final class STTService {
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var silenceTimer: Timer?
     private var continuation: AsyncStream<String>.Continuation?
-
-    private let silenceTimeout: TimeInterval = 1.5
 
     init() {
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -32,15 +29,13 @@ final class STTService {
         return
         #else
         // Request microphone permission first
+        // IMPORTANT: Use nonisolated helpers to avoid Swift 6 @MainActor isolation
+        // leaking into callback closures that run on background threads (TCC framework).
         let micGranted: Bool
         if #available(iOS 17, *) {
             micGranted = await AVAudioApplication.requestRecordPermission()
         } else {
-            micGranted = await withCheckedContinuation { continuation in
-                AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                    continuation.resume(returning: granted)
-                }
-            }
+            micGranted = await Self.requestMicPermission()
         }
         guard micGranted else {
             error = "Microphone access not authorized. Please enable in Settings."
@@ -49,16 +44,32 @@ final class STTService {
         }
 
         // Then request speech recognition permission
-        let status = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
+        let status = await Self.requestSpeechPermission()
         isAuthorized = (status == .authorized)
         if !isAuthorized {
             error = "Speech recognition not authorized. Please enable in Settings."
         }
         #endif
+    }
+
+    /// Wraps the callback-based speech authorization in a nonisolated context so the
+    /// closure does NOT inherit @MainActor isolation. Without this, Swift 6 runtime
+    /// enforcement crashes because TCC calls the callback on a background thread.
+    private nonisolated static func requestSpeechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    /// Same pattern for microphone permission (pre-iOS 17 path).
+    private nonisolated static func requestMicPermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
     }
 
     func startListening() -> AsyncStream<String> {
@@ -103,8 +114,6 @@ final class STTService {
     }
 
     func stopListening() {
-        silenceTimer?.invalidate()
-        silenceTimer = nil
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         recognitionTask = nil
@@ -138,9 +147,14 @@ final class STTService {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        // Configure audio session
+        // Configure audio session — use .default mode (not .measurement) for better TTS
+        // quality and Bluetooth routing. Use both Bluetooth options for high-quality output.
         try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [
+            .defaultToSpeaker,
+            .allowBluetooth,
+            .allowBluetoothA2DP
+        ])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
         let engine = AVAudioEngine()
@@ -148,16 +162,20 @@ final class STTService {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        // Only require on-device if the recognizer supports it
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
+        // Require on-device recognition for privacy — memoir content must never leave the device.
+        // If on-device is unavailable, fail gracefully to text input.
+        guard recognizer.supportsOnDeviceRecognition else {
+            throw STTError.onDeviceUnavailable
         }
+        request.requiresOnDeviceRecognition = true
         self.recognitionRequest = request
 
         // Install tap with nil format — lets the system use the hardware's native format.
         // Passing an explicit format can crash with NSException on format mismatch.
         let inputNode = engine.inputNode
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
+        // Explicitly @Sendable to prevent @MainActor isolation inheritance.
+        // This callback runs on the audio render thread.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable buffer, _ in
             request.append(buffer)
         }
 
@@ -168,7 +186,9 @@ final class STTService {
         // Track accumulated transcript for iOS 18 non-cumulative results workaround
         nonisolated(unsafe) var accumulatedTranscript = ""
 
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        // Explicitly @Sendable to prevent @MainActor isolation inheritance.
+        // Speech recognition delivers results on a background thread.
+        recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             guard let self else { return }
 
             if let result {
@@ -177,12 +197,15 @@ final class STTService {
                     accumulatedTranscript = text
                 }
 
-                Task { @MainActor in
-                    self.partialTranscript = accumulatedTranscript
-                    self.resetSilenceTimer()
+                // Capture values locally before crossing isolation boundary
+                let currentTranscript = accumulatedTranscript
+                let isFinal = result.isFinal
 
-                    if result.isFinal {
-                        self.continuation?.yield(accumulatedTranscript)
+                Task { @MainActor in
+                    self.partialTranscript = currentTranscript
+                    self.continuation?.yield(currentTranscript)
+
+                    if isFinal {
                         self.continuation?.finish()
                         self.stopListening()
                     }
@@ -190,10 +213,11 @@ final class STTService {
             }
 
             if let error {
+                let currentTranscript = accumulatedTranscript
                 Task { @MainActor in
                     self.logger.error("Recognition error: \(error)")
-                    if !accumulatedTranscript.isEmpty {
-                        self.continuation?.yield(accumulatedTranscript)
+                    if !currentTranscript.isEmpty {
+                        self.continuation?.yield(currentTranscript)
                     }
                     self.continuation?.finish()
                     self.stopListening()
@@ -202,26 +226,13 @@ final class STTService {
         }
     }
 
-    private func resetSilenceTimer() {
-        silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceTimeout, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.isRecording else { return }
-                let transcript = self.partialTranscript
-                if !transcript.isEmpty {
-                    self.continuation?.yield(transcript)
-                }
-                self.continuation?.finish()
-                self.stopListening()
-            }
-        }
-    }
 }
 
 enum STTError: Error, LocalizedError {
     case recognizerUnavailable
     case notAuthorized
     case microphoneUnavailable
+    case onDeviceUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -231,6 +242,8 @@ enum STTError: Error, LocalizedError {
             return "Speech recognition access not authorized"
         case .microphoneUnavailable:
             return "Microphone is not available. Please check permissions in Settings."
+        case .onDeviceUnavailable:
+            return "On-device speech recognition is not available. Please use text input instead."
         }
     }
 }

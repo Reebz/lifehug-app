@@ -113,6 +113,15 @@ final class ModelDownloader {
         phase = .idle
     }
 
+    /// Release the in-memory model to free RAM when backgrounded.
+    /// Files stay on disk — model reloads on next foreground.
+    func unloadModel() {
+        guard phase == .ready else { return }
+        modelContainer = nil
+        phase = .idle
+        logger.info("Model unloaded to free memory")
+    }
+
     /// Re-check model availability (e.g. after returning from background).
     /// iOS can evict large files under memory pressure.
     func recheckModelAvailability() async {

@@ -78,13 +78,20 @@ final class ModelState {
 
     // MARK: - Scene Phase Handling
 
-    /// Call when the app returns to foreground to detect model eviction.
+    /// Handle scene phase transitions — unload model on background, reload on active.
     func handleScenePhaseChange(_ newPhase: ScenePhase) {
-        guard newPhase == .active else { return }
-
-        Task {
-            await downloader.recheckModelAvailability()
-            syncFromDownloader()
+        switch newPhase {
+        case .background:
+            downloader.unloadModel()
+            isLoaded = false
+            status = .notDownloaded
+        case .active:
+            Task {
+                await downloader.recheckModelAvailability()
+                syncFromDownloader()
+            }
+        default:
+            break
         }
     }
 
