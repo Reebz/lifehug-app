@@ -40,7 +40,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Lifehug/Lifehug.entitlements
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: PJHS9XQS6H
-        MARKETING_VERSION: "1.0.0"
+        MARKETING_VERSION: "1.0.3"
         CURRENT_PROJECT_VERSION: 3
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
