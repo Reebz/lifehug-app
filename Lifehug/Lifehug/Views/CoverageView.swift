@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CoverageView: View {
+    @Binding var selectedTab: Int
     @Environment(AppState.self) private var appState
 
     @State private var categories: [Character: Category] = [:]
@@ -27,7 +28,10 @@ struct CoverageView: View {
                 CategoryDetailSheet(
                     category: wrapper.category,
                     questions: questions.filter { $0.category == wrapper.id },
-                    categoryColor: colorForCategory(wrapper.id)
+                    categoryColor: colorForCategory(wrapper.id),
+                    onAnswer: { _ in
+                        selectedTab = 0
+                    }
                 )
             }
             .task {
@@ -186,6 +190,7 @@ private struct CategoryDetailSheet: View {
     let category: Category
     let questions: [Question]
     let categoryColor: Color
+    var onAnswer: ((Question) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -204,6 +209,22 @@ private struct CategoryDetailSheet: View {
                             Text(question.text)
                                 .font(Theme.bodySerifFont)
                                 .foregroundStyle(Theme.warmCharcoal)
+                        }
+
+                        Spacer()
+
+                        if !question.answered {
+                            Button {
+                                onAnswer?(question)
+                                dismiss()
+                            } label: {
+                                Text("Answer")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Theme.terracotta, in: Capsule())
+                            }
                         }
                     }
                     .listRowBackground(Theme.cream)
@@ -224,6 +245,6 @@ private struct CategoryDetailSheet: View {
 }
 
 #Preview {
-    CoverageView()
+    CoverageView(selectedTab: .constant(1))
         .environment(AppState())
 }

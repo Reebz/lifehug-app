@@ -17,6 +17,7 @@ final class STTService {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var continuation: AsyncStream<String>.Continuation?
+    private var silenceTimer: Task<Void, Never>?
     private var shouldKeepListening: Bool = false
     private var accumulatedTranscript: String = ""
     /// Shared reference accessible from the @Sendable audio tap callback.
@@ -127,6 +128,8 @@ final class STTService {
     }
 
     func stopListening() {
+        silenceTimer?.cancel()
+        silenceTimer = nil
         shouldKeepListening = false
 
         recognitionRequest?.endAudio()
@@ -198,6 +201,7 @@ final class STTService {
         engine.prepare()
         try engine.start()
         isRecording = true
+        resetSilenceTimer()
 
         installRecognitionTask(for: request)
     }
@@ -208,6 +212,18 @@ final class STTService {
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
         return request
+    }
+
+    private func resetSilenceTimer() {
+        silenceTimer?.cancel()
+        let timeout = StorageService.silenceTimeout
+        silenceTimer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(timeout))
+            guard let self, self.isRecording, !Task.isCancelled else { return }
+            self.logger.info("Silence timeout (\(timeout)s) — auto-stopping")
+            self.continuation?.finish()
+            self.stopListening()
+        }
     }
 
     /// Chains a new recognition request after the previous one timed out (~60s).
@@ -268,6 +284,7 @@ final class STTService {
                     self.accumulatedTranscript = fullTranscript
                     self.partialTranscript = fullTranscript
                     self.continuation?.yield(fullTranscript)
+                    self.resetSilenceTimer()
 
                     if isFinal {
                         if self.shouldKeepListening {

@@ -14,6 +14,18 @@ final class StorageService {
         set { UserDefaults.standard.set(newValue, forKey: iCloudBackupKey) }
     }
 
+    // MARK: - Silence Timeout Preference
+
+    private static let silenceTimeoutKey = "silenceTimeoutSeconds"
+
+    static var silenceTimeout: TimeInterval {
+        get {
+            let val = UserDefaults.standard.double(forKey: silenceTimeoutKey)
+            return val > 0 ? val : 3.0
+        }
+        set { UserDefaults.standard.set(newValue, forKey: silenceTimeoutKey) }
+    }
+
     // MARK: - Directory Paths
 
     /// Application Support — models and state (not visible in Files app)

@@ -75,7 +75,7 @@ struct ContentView: View {
                     }
 
                     Tab("Coverage", systemImage: "chart.bar.fill", value: 1) {
-                        CoverageView()
+                        CoverageView(selectedTab: $selectedTab)
                     }
 
                     Tab("Answers", systemImage: "book.fill", value: 2) {

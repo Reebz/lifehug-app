@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var reminderTime: Date = defaultReminderTime()
     @State private var notificationDenied: Bool = false
     @State private var iCloudBackupEnabled: Bool = StorageService.iCloudBackupEnabled
+    @State private var silenceTimeout: Double = StorageService.silenceTimeout
     @State private var showDeleteModelConfirmation = false
     @State private var showResetConfirmation = false
     @State private var showExportAlert = false
@@ -31,6 +32,7 @@ struct SettingsView: View {
                 notificationsSection
                 privacySection
                 kokoroSection
+                voiceSection
                 modelSection
                 dataSection
                 aboutSection
@@ -277,6 +279,35 @@ struct SettingsView: View {
             return "\(name) (\(accent))"
         }
         return "\(name) (\(accent) \(gender))"
+    }
+
+    // MARK: - Voice Section
+
+    private var voiceSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Silence Timeout")
+                        .foregroundStyle(Theme.warmCharcoal)
+                    Spacer()
+                    Text("\(silenceTimeout, specifier: "%.1f")s")
+                        .foregroundStyle(Theme.walnut)
+                }
+                Slider(value: $silenceTimeout, in: 1.0...10.0, step: 0.5)
+                    .tint(Theme.terracotta)
+                    .onChange(of: silenceTimeout) { _, newValue in
+                        StorageService.silenceTimeout = newValue
+                    }
+                Text("Auto-stop listening after this many seconds of silence")
+                    .font(.caption)
+                    .foregroundStyle(Theme.walnut)
+            }
+            .listRowBackground(Color.white)
+        } header: {
+            Text("Voice")
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
+        }
     }
 
     // MARK: - Model Section
