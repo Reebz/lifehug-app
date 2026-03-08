@@ -182,6 +182,28 @@ final class StorageService {
         return Answer.fromMarkdown(content)
     }
 
+    // MARK: - Draft I/O
+
+    var draftsDirectory: URL {
+        let url = documentsDirectory.appendingPathComponent("drafts", isDirectory: true)
+        try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func saveDraft(categoryLetter: Character, content: String) throws {
+        let filename = "chapter-\(categoryLetter).md"
+        let url = draftsDirectory.appendingPathComponent(filename)
+        try atomicWrite(content: content, to: url)
+        logger.info("Saved draft for category \(String(categoryLetter))")
+    }
+
+    func readDraft(categoryLetter: Character) throws -> String? {
+        let filename = "chapter-\(categoryLetter).md"
+        let url = draftsDirectory.appendingPathComponent(filename)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     // MARK: - Atomic Write
 
     private func atomicWrite(content: String, to url: URL) throws {

@@ -136,6 +136,53 @@ final class LLMService {
         #endif
     }
 
+    // MARK: - Long-Form Generation
+
+    /// Generate a longer response with a configurable token limit.
+    /// Used for chapter generation where the default maxTokens is too short.
+    /// This creates a temporary session (does not disturb any active conversation).
+    func generateLongResponse(to prompt: String, maxTokens: Int = 500) async throws -> String {
+        #if targetEnvironment(simulator)
+        isGenerating = true
+        try? await Task.sleep(for: .milliseconds(300))
+        isGenerating = false
+        return "Sample long-form response for: \(prompt.prefix(50))..."
+        #else
+        guard let container = modelContainer else {
+            throw LLMError.modelNotLoaded
+        }
+
+        isGenerating = true
+        defer { isGenerating = false }
+
+        // Use a dedicated session so we don't pollute the conversation session
+        let session = ChatSession(
+            container,
+            instructions: "You are a skilled memoir writer. Follow the instructions precisely.",
+            generateParameters: generateParameters
+        )
+
+        nonisolated(unsafe) let unsafeSession = session
+
+        // Stream and collect tokens up to the specified limit
+        var result = ""
+        var tokenCount = 0
+        for try await chunk in unsafeSession.streamResponse(to: prompt) {
+            let cleaned = cleanChunk(chunk)
+            if !cleaned.isEmpty {
+                result += cleaned
+            }
+            tokenCount += 1
+            if tokenCount >= maxTokens {
+                break
+            }
+        }
+
+        logger.info("Long-form generation complete: \(tokenCount) tokens")
+        return cleanResponse(result)
+        #endif
+    }
+
     // MARK: - Text Cleaning
 
     private func cleanChunk(_ chunk: String) -> String {

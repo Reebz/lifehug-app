@@ -17,6 +17,11 @@ final class STTService {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var continuation: AsyncStream<String>.Continuation?
+    private var shouldKeepListening: Bool = false
+    private var accumulatedTranscript: String = ""
+    /// Shared reference accessible from the @Sendable audio tap callback.
+    /// The tap outlives individual recognition requests during chaining.
+    nonisolated(unsafe) private var sharedRequest: SFSpeechAudioBufferRecognitionRequest?
 
     init() {
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -90,11 +95,14 @@ final class STTService {
         #else
         // Clear any previous error
         self.error = nil
+        self.accumulatedTranscript = ""
+        self.shouldKeepListening = true
 
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
             continuation.onTermination = { @Sendable _ in
                 Task { @MainActor in
+                    self.shouldKeepListening = false
                     self.stopListening()
                 }
             }
@@ -106,6 +114,7 @@ final class STTService {
             logger.error("Failed to start recognition: \(error)")
             self.error = "Failed to start speech recognition: \(error.localizedDescription)"
             isRecording = false
+            shouldKeepListening = false
             continuation?.finish()
         }
 
@@ -114,10 +123,13 @@ final class STTService {
     }
 
     func stopListening() {
+        shouldKeepListening = false
+
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
+        sharedRequest = nil
 
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -160,67 +172,142 @@ final class STTService {
         let engine = AVAudioEngine()
         self.audioEngine = engine
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
         // Require on-device recognition for privacy — memoir content must never leave the device.
-        // If on-device is unavailable, fail gracefully to text input.
         guard recognizer.supportsOnDeviceRecognition else {
             throw STTError.onDeviceUnavailable
         }
-        request.requiresOnDeviceRecognition = true
+
+        let request = createRecognitionRequest()
         self.recognitionRequest = request
+        self.sharedRequest = request
 
         // Install tap with nil format — lets the system use the hardware's native format.
         // Passing an explicit format can crash with NSException on format mismatch.
         let inputNode = engine.inputNode
         // Explicitly @Sendable to prevent @MainActor isolation inheritance.
         // This callback runs on the audio render thread.
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable buffer, _ in
-            request.append(buffer)
+        // Captures sharedRequest (nonisolated(unsafe)) so chained requests receive buffers.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak self] buffer, _ in
+            self?.sharedRequest?.append(buffer)
         }
 
         engine.prepare()
         try engine.start()
         isRecording = true
 
-        // Track accumulated transcript for iOS 18 non-cumulative results workaround
-        nonisolated(unsafe) var accumulatedTranscript = ""
+        installRecognitionTask(for: request)
+    }
 
-        // Explicitly @Sendable to prevent @MainActor isolation inheritance.
-        // Speech recognition delivers results on a background thread.
+    /// Creates a new on-device speech recognition request.
+    private func createRecognitionRequest() -> SFSpeechAudioBufferRecognitionRequest {
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = true
+        return request
+    }
+
+    /// Chains a new recognition request after the previous one timed out (~60s).
+    /// The audio engine and tap keep running; only the request/task are replaced.
+    private func chainRecognitionRequest() {
+        logger.info("Chaining new recognition request (60s limit reached)")
+
+        // Tear down old request/task without touching the audio engine
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+
+        guard let recognizer, recognizer.isAvailable else {
+            logger.error("Recognizer unavailable during chain — stopping")
+            continuation?.finish()
+            stopListening()
+            return
+        }
+
+        let request = createRecognitionRequest()
+        self.recognitionRequest = request
+        self.sharedRequest = request
+
+        installRecognitionTask(for: request)
+    }
+
+    /// Installs the recognition task callback for the given request.
+    /// Handles partial results, final results, and the 60-second timeout error
+    /// by chaining a new request when `shouldKeepListening` is still true.
+    private func installRecognitionTask(for request: SFSpeechAudioBufferRecognitionRequest) {
+        guard let recognizer else { return }
+
+        // Snapshot the accumulated transcript so the @Sendable callback can build on it.
+        // This local var tracks the running transcript within this single recognition segment.
+        nonisolated(unsafe) var segmentBase = self.accumulatedTranscript
+        nonisolated(unsafe) var segmentText = ""
+
         recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             guard let self else { return }
 
             if let result {
                 let text = result.bestTranscription.formattedString
-                if text.count > accumulatedTranscript.count {
-                    accumulatedTranscript = text
+                if text.count > segmentText.count {
+                    segmentText = text
                 }
 
-                // Capture values locally before crossing isolation boundary
-                let currentTranscript = accumulatedTranscript
+                // Full transcript = everything from prior segments + this segment
+                let fullTranscript: String
+                if segmentBase.isEmpty {
+                    fullTranscript = segmentText
+                } else {
+                    fullTranscript = segmentBase + " " + segmentText
+                }
                 let isFinal = result.isFinal
 
                 Task { @MainActor in
-                    self.partialTranscript = currentTranscript
-                    self.continuation?.yield(currentTranscript)
+                    self.accumulatedTranscript = fullTranscript
+                    self.partialTranscript = fullTranscript
+                    self.continuation?.yield(fullTranscript)
 
                     if isFinal {
-                        self.continuation?.finish()
-                        self.stopListening()
+                        if self.shouldKeepListening {
+                            // 60s limit reached with a final result — chain a new request
+                            self.chainRecognitionRequest()
+                        } else {
+                            self.continuation?.finish()
+                            self.stopListening()
+                        }
                     }
                 }
             }
 
             if let error {
-                let currentTranscript = accumulatedTranscript
+                // Check for the 60-second timeout error (kAFAssistantErrorDomain code 1110)
+                let nsError = error as NSError
+                let isTimeoutError = nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110
+
+                // Capture segment state before crossing isolation boundary
+                let currentFull: String
+                if segmentBase.isEmpty {
+                    currentFull = segmentText
+                } else if segmentText.isEmpty {
+                    currentFull = segmentBase
+                } else {
+                    currentFull = segmentBase + " " + segmentText
+                }
+
                 Task { @MainActor in
-                    self.logger.error("Recognition error: \(error)")
-                    if !currentTranscript.isEmpty {
-                        self.continuation?.yield(currentTranscript)
+                    if isTimeoutError && self.shouldKeepListening {
+                        // Timeout while still recording — chain seamlessly
+                        self.accumulatedTranscript = currentFull
+                        self.logger.info("60s timeout — chaining new recognition request")
+                        self.chainRecognitionRequest()
+                    } else {
+                        self.logger.error("Recognition error: \(error)")
+                        if !currentFull.isEmpty {
+                            self.accumulatedTranscript = currentFull
+                            self.partialTranscript = currentFull
+                            self.continuation?.yield(currentFull)
+                        }
+                        self.continuation?.finish()
+                        self.stopListening()
                     }
-                    self.continuation?.finish()
-                    self.stopListening()
                 }
             }
         }

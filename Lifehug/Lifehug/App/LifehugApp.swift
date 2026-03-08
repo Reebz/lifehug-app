@@ -8,6 +8,7 @@ struct LifehugApp: App {
     @State private var llmService = LLMService()
     @State private var sttService = STTService()
     @State private var ttsService = TTSService()
+    @State private var kokoroManager = KokoroManager()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -19,8 +20,18 @@ struct LifehugApp: App {
                 .environment(llmService)
                 .environment(sttService)
                 .environment(ttsService)
+                .environment(kokoroManager)
+                .task {
+                    ttsService.setKokoroManager(kokoroManager)
+                    if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
+                        await kokoroManager.loadEngine()
+                    }
+                }
                 .onChange(of: scenePhase) { _, newPhase in
                     modelState.handleScenePhaseChange(newPhase)
+                    if newPhase == .background {
+                        kokoroManager.unloadEngine()
+                    }
                 }
         }
     }

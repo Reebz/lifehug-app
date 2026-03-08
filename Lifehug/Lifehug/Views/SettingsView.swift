@@ -4,8 +4,11 @@ import UserNotifications
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(ModelState.self) private var modelState
+    @Environment(KokoroManager.self) private var kokoroManager
 
     @State private var userName: String = ""
+    @State private var kokoroEnabled: Bool = KokoroManager.isEnabled
+    @State private var selectedVoice: String = KokoroManager.selectedVoice
     @State private var reminderEnabled: Bool = false
     @State private var reminderTime: Date = defaultReminderTime()
     @State private var notificationDenied: Bool = false
@@ -23,6 +26,7 @@ struct SettingsView: View {
                 profileSection
                 notificationsSection
                 privacySection
+                kokoroSection
                 modelSection
                 dataSection
                 aboutSection
@@ -151,6 +155,119 @@ struct SettingsView: View {
                 .font(Theme.subheadlineSerifFont)
                 .foregroundStyle(Theme.warmCharcoal)
         }
+    }
+
+    // MARK: - Kokoro Natural Voice Section
+
+    private var kokoroSection: some View {
+        Section {
+            Toggle(isOn: $kokoroEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Natural Voice")
+                        .foregroundStyle(Theme.warmCharcoal)
+                    Text("On-device neural TTS (~175 MB download)")
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
+            }
+            .tint(Theme.terracotta)
+            .onChange(of: kokoroEnabled) { _, enabled in
+                KokoroManager.isEnabled = enabled
+                if enabled && !kokoroManager.isModelDownloaded {
+                    kokoroManager.downloadModel()
+                } else if enabled && kokoroManager.isModelDownloaded {
+                    Task { await kokoroManager.loadEngine() }
+                } else if !enabled {
+                    kokoroManager.unloadEngine()
+                }
+            }
+            .listRowBackground(Color.white)
+
+            if kokoroManager.phase == .downloading {
+                HStack {
+                    Text("Downloading...")
+                        .foregroundStyle(Theme.walnut)
+                    Spacer()
+                    ProgressView(value: kokoroManager.downloadProgress)
+                        .frame(width: 120)
+                        .tint(Theme.terracotta)
+                }
+                .listRowBackground(Color.white)
+            }
+
+            if kokoroManager.phase == .loading {
+                HStack {
+                    Text("Loading voice model...")
+                        .foregroundStyle(Theme.walnut)
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Theme.terracotta)
+                }
+                .listRowBackground(Color.white)
+            }
+
+            if kokoroManager.isReady {
+                Picker("Voice", selection: $selectedVoice) {
+                    ForEach(kokoroManager.availableVoices, id: \.self) { voice in
+                        Text(voiceDisplayName(voice)).tag(voice)
+                    }
+                }
+                .foregroundStyle(Theme.warmCharcoal)
+                .onChange(of: selectedVoice) { _, newVoice in
+                    KokoroManager.selectedVoice = newVoice
+                }
+                .listRowBackground(Color.white)
+            }
+
+            if kokoroManager.isModelDownloaded {
+                Button {
+                    kokoroManager.deleteModel()
+                    kokoroEnabled = false
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete Voice Model")
+                    }
+                    .foregroundStyle(Theme.mutedRose)
+                }
+                .listRowBackground(Color.white)
+            }
+
+            if let error = kokoroManager.errorMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(Theme.mutedRose)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
+                .listRowBackground(Color.white)
+            }
+        } header: {
+            Text("Natural Voice (Kokoro)")
+                .font(Theme.subheadlineSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
+        }
+    }
+
+    private func voiceDisplayName(_ voiceID: String) -> String {
+        let parts = voiceID.split(separator: "_")
+        guard parts.count >= 2 else { return voiceID }
+        let prefix = String(parts[0])
+        let name = String(parts[1]).capitalized
+
+        let gender: String
+        if prefix.hasPrefix("a") { gender = "Female" }
+        else if prefix.hasPrefix("b") { gender = "Male" }
+        else { gender = "" }
+
+        let accent = prefix.contains("f") ? "US" : "UK"
+
+        if gender.isEmpty {
+            return "\(name) (\(accent))"
+        }
+        return "\(name) (\(accent) \(gender))"
     }
 
     // MARK: - Model Section
@@ -463,4 +580,5 @@ enum NotificationService {
     SettingsView()
         .environment(AppState())
         .environment(ModelState())
+        .environment(KokoroManager())
 }
