@@ -19,6 +19,7 @@ final class TTSService {
     private var sentenceQueue: [String] = []
     private var speakingTask: Task<Void, Never>?
     private(set) var kokoroManager: KokoroManager?
+    private static var cachedVoice: AVSpeechSynthesisVoice?
 
     /// Whether Kokoro neural TTS should be used for speech.
     var useKokoro: Bool {
@@ -69,6 +70,12 @@ final class TTSService {
         logger.warning("Degraded to system TTS (memory pressure)")
     }
 
+    /// Unload the Kokoro model weights (~80MB) to reclaim memory.
+    func unloadKokoroModel() {
+        kokoroManager?.unloadEngine()
+        logger.info("Kokoro model unloaded via TTSService (memory pressure)")
+    }
+
     private func processSentenceQueue() async {
         guard !sentenceQueue.isEmpty else {
             isSpeaking = false
@@ -102,33 +109,44 @@ final class TTSService {
     /// Select the best available on-device voice for the given language.
     /// Prefers named voices (Zoe, Ava, Joelle, Noelle), then premium > enhanced > default quality.
     private static func bestAvailableVoice(for language: String = "en-US") -> AVSpeechSynthesisVoice? {
+        if let cached = cachedVoice {
+            return cached
+        }
+
         let voices = AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language == language }
 
         let preferredNames = ["Zoe", "Ava", "Joelle", "Noelle"]
         for name in preferredNames {
             if let match = voices.first(where: { $0.name.contains(name) && $0.quality == .premium }) {
+                cachedVoice = match
                 return match
             }
         }
         for name in preferredNames {
             if let match = voices.first(where: { $0.name.contains(name) && $0.quality == .enhanced }) {
+                cachedVoice = match
                 return match
             }
         }
         for name in preferredNames {
             if let match = voices.first(where: { $0.name.contains(name) }) {
+                cachedVoice = match
                 return match
             }
         }
 
         if let premium = voices.first(where: { $0.quality == .premium }) {
+            cachedVoice = premium
             return premium
         }
         if let enhanced = voices.first(where: { $0.quality == .enhanced }) {
+            cachedVoice = enhanced
             return enhanced
         }
-        return AVSpeechSynthesisVoice(language: language)
+        let fallback = AVSpeechSynthesisVoice(language: language)
+        cachedVoice = fallback
+        return fallback
     }
 }
 

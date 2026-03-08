@@ -20,6 +20,7 @@ struct ConversationView: View {
     @State private var hasStartedLLMSession: Bool = false
     @State private var voiceMode: Bool = false
     @State private var pipeline: VoicePipeline?
+    @State private var voiceModeTask: Task<Void, Never>?
 
     private let storageService = StorageService()
 
@@ -69,6 +70,7 @@ struct ConversationView: View {
             }
         }
         .onDisappear {
+            voiceModeTask?.cancel()
             pipeline?.stopAll()
         }
     }
@@ -342,15 +344,17 @@ struct ConversationView: View {
 
     private func toggleVoiceMode() {
         if !voiceMode {
-            // Entering voice mode — ensure model is ready first
-            Task {
+            voiceMode = true
+
+            voiceModeTask = Task {
+                // Ensure model is loaded before building the pipeline
                 if !llmService.isLoaded {
                     isThinking = true
                     try? await llmService.loadModel()
                     isThinking = false
                 }
 
-                voiceMode = true
+                guard !Task.isCancelled else { return }
 
                 // Create pipeline and wire callbacks
                 let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
@@ -381,6 +385,8 @@ struct ConversationView: View {
                 pipeline = p
             }
         } else {
+            voiceModeTask?.cancel()
+            voiceModeTask = nil
             voiceMode = false
             pipeline?.stopAll()
             pipeline = nil

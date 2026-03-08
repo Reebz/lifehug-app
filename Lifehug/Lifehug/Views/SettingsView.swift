@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import os
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
@@ -21,6 +22,7 @@ struct SettingsView: View {
     @State private var storageSizeMB: String = "---"
 
     private let storage = StorageService()
+    private let logger = Logger(subsystem: "com.lifehug.app", category: "Settings")
 
     var body: some View {
         NavigationStack {
@@ -510,7 +512,8 @@ struct SettingsView: View {
 
             rootVC.present(activityVC, animated: true)
         } catch {
-            exportAlertMessage = "Export failed: \(error.localizedDescription)"
+            logger.error("Export failed: \(error)")
+            exportAlertMessage = "Export failed. Please try again."
             showExportAlert = true
         }
     }
@@ -556,16 +559,6 @@ struct SettingsView: View {
 enum NotificationService {
     private static let dailyReminderID = "com.lifehug.dailyReminder"
 
-    static func requestPermission(completion: @escaping @Sendable (Bool) -> Void) {
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            DispatchQueue.main.async {
-                completion(granted)
-            }
-        }
-    }
-
-    /// Async wrapper that avoids @Sendable closure issues with @State property mutation.
     static func requestPermissionAsync() async -> Bool {
         await withCheckedContinuation { continuation in
             let center = UNUserNotificationCenter.current()

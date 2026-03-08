@@ -10,13 +10,17 @@ final class SessionState {
     var draftTranscript: String = ""
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Session")
+    private let fileManager = FileManager.default
+
+    /// Debounce task for auto-save writes.
+    private var autoSaveTask: Task<Void, Never>?
 
     // MARK: - Conversation Management
 
     func addTurn(role: ConversationTurn.Role, text: String) {
         let turn = ConversationTurn(role: role, text: text, timestamp: Date())
         conversationTurns.append(turn)
-        autoSave()
+        scheduleAutoSave()
     }
 
     /// Compile all user turns into a single coherent answer text.
@@ -27,6 +31,8 @@ final class SessionState {
 
     /// Reset session state for a new question.
     func resetSession() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
         currentQuestion = nil
         conversationTurns = []
         isRecording = false
@@ -34,10 +40,28 @@ final class SessionState {
         clearAutoSave()
     }
 
-    // MARK: - Auto-Save
+    // MARK: - Auto-Save (encrypted file storage)
 
-    private static let autoSaveKey = "sessionAutoSave"
+    /// Legacy UserDefaults key — used only for one-time migration.
+    private static let legacyAutoSaveKey = "sessionAutoSave"
 
+    private var autoSaveFileURL: URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        try? fileManager.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        return appSupport.appendingPathComponent("autosave.json")
+    }
+
+    /// Debounced auto-save: cancels any pending save and schedules a new one after 2 seconds.
+    private func scheduleAutoSave() {
+        autoSaveTask?.cancel()
+        autoSaveTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            autoSave()
+        }
+    }
+
+    /// Write session state to an encrypted file immediately.
     func autoSave() {
         guard currentQuestion != nil, !conversationTurns.isEmpty else { return }
         let saveable = conversationTurns.map { SaveableTurn(role: $0.role == .user ? "user" : "assistant", text: $0.text, timestamp: $0.timestamp) }
@@ -47,30 +71,80 @@ final class SessionState {
             questionCategory: currentQuestion.map { String($0.category) },
             turns: saveable
         )
-        if let data = try? JSONEncoder().encode(payload) {
-            UserDefaults.standard.set(data, forKey: Self.autoSaveKey)
+        do {
+            let data = try JSONEncoder().encode(payload)
+            let url = autoSaveFileURL
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            try fileManager.setAttributes(
+                [.protectionKey: FileProtectionType.complete],
+                ofItemAtPath: url.path
+            )
+            var resourceURL = url
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            try resourceURL.setResourceValues(resourceValues)
+        } catch {
+            logger.error("Auto-save failed: \(error.localizedDescription)")
         }
     }
 
     func restoreAutoSave() {
-        guard let data = UserDefaults.standard.data(forKey: Self.autoSaveKey),
-              let payload = try? JSONDecoder().decode(AutoSavePayload.self, from: data) else { return }
+        migrateAutoSaveFromUserDefaultsIfNeeded()
 
-        conversationTurns = payload.turns.map {
-            ConversationTurn(role: $0.role == "user" ? .user : .assistant, text: $0.text, timestamp: $0.timestamp)
+        let url = autoSaveFileURL
+        guard fileManager.fileExists(atPath: url.path) else { return }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let payload = try JSONDecoder().decode(AutoSavePayload.self, from: data)
+            conversationTurns = payload.turns.map {
+                ConversationTurn(role: $0.role == "user" ? .user : .assistant, text: $0.text, timestamp: $0.timestamp)
+            }
+
+            // Restore question context if available
+            if let id = payload.questionID, let text = payload.questionText {
+                let category = payload.questionCategory?.first ?? "A"
+                currentQuestion = Question(id: id, category: category, text: text, answered: false)
+            }
+
+            logger.info("Restored \(self.conversationTurns.count) conversation turns from auto-save")
+        } catch {
+            logger.error("Failed to restore auto-save: \(error.localizedDescription)")
         }
-
-        // Restore question context if available
-        if let id = payload.questionID, let text = payload.questionText {
-            let category = payload.questionCategory?.first ?? "A"
-            currentQuestion = Question(id: id, category: category, text: text, answered: false)
-        }
-
-        logger.info("Restored \(self.conversationTurns.count) conversation turns from auto-save")
     }
 
     private func clearAutoSave() {
-        UserDefaults.standard.removeObject(forKey: Self.autoSaveKey)
+        let url = autoSaveFileURL
+        do {
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+            }
+        } catch {
+            logger.error("Failed to clear auto-save file: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Migration from UserDefaults
+
+    /// One-time migration: move auto-save data from UserDefaults to encrypted file.
+    private func migrateAutoSaveFromUserDefaultsIfNeeded() {
+        guard let data = UserDefaults.standard.data(forKey: Self.legacyAutoSaveKey) else { return }
+        do {
+            let url = autoSaveFileURL
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            try fileManager.setAttributes(
+                [.protectionKey: FileProtectionType.complete],
+                ofItemAtPath: url.path
+            )
+            var resourceURL = url
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            try resourceURL.setResourceValues(resourceValues)
+            UserDefaults.standard.removeObject(forKey: Self.legacyAutoSaveKey)
+            logger.info("Migrated auto-save data from UserDefaults to encrypted file")
+        } catch {
+            logger.error("Auto-save migration failed: \(error.localizedDescription)")
+        }
     }
 
     private struct SaveableTurn: Codable {

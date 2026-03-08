@@ -367,10 +367,12 @@ final class VoicePipeline {
             // Unload Kokoro model entirely and fall back to system TTS
             logger.error("Critical memory pressure (\(MemoryMonitor.availableMB)MB) — unloading Kokoro")
             ttsService.degradeToSystemTTS()
+            ttsService.unloadKokoroModel()
         case .emergency:
             // LLM might get killed by OS — log for diagnostics
             logger.critical("Emergency memory pressure: \(MemoryMonitor.availableMB)MB available — OS may terminate app")
             ttsService.degradeToSystemTTS()
+            ttsService.unloadKokoroModel()
         }
     }
 }

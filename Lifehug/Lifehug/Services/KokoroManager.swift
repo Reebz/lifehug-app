@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CryptoKit
 @preconcurrency import MLX
 @preconcurrency import KokoroSwift
 @preconcurrency import MLXUtilsLibrary
@@ -14,6 +15,7 @@ final class KokoroManager {
     private(set) var phase: Phase = .idle
     private(set) var downloadProgress: Double = 0
     private(set) var errorMessage: String?
+    private(set) var cachedVoiceNames: [String] = []
 
     enum Phase: Sendable {
         case idle
@@ -69,7 +71,7 @@ final class KokoroManager {
     var isReady: Bool { phase == .ready }
 
     var availableVoices: [String] {
-        voices.keys.map { String($0.split(separator: ".")[0]) }.sorted()
+        cachedVoiceNames
     }
 
     /// Selected voice identifier (stored in UserDefaults).
@@ -153,6 +155,7 @@ final class KokoroManager {
 
             ttsEngine = engine
             voices = loadedVoices
+            cachedVoiceNames = loadedVoices.keys.map { String($0.split(separator: ".")[0]) }.sorted()
             setupAudioEngine()
             phase = .ready
             logger.info("Kokoro engine loaded with \(loadedVoices.count) voices")
@@ -170,6 +173,7 @@ final class KokoroManager {
         playerNode = nil
         ttsEngine = nil
         voices = [:]
+        cachedVoiceNames = []
         if phase == .ready {
             phase = .idle
         }
@@ -221,6 +225,16 @@ final class KokoroManager {
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         engine.attach(player)
+
+        let format = AVAudioFormat(standardFormatWithSampleRate: Double(KokoroTTS.Constants.samplingRate), channels: 1)!
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+
+        do {
+            try engine.start()
+        } catch {
+            logger.error("Audio engine initial start failed: \(error)")
+        }
+
         audioEngine = engine
         playerNode = player
     }
@@ -243,23 +257,25 @@ final class KokoroManager {
             dst.initialize(from: baseAddress, count: samples.count)
         }
 
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-
-        do {
-            try engine.start()
-        } catch {
-            logger.error("Audio engine start failed: \(error)")
-            return
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                logger.error("Audio engine start failed: \(error)")
+                return
+            }
         }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            nonisolated(unsafe) var resumed = false
+            let resumed = OSAllocatedUnfairLock(initialState: false)
             player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { _ in
-                guard !resumed else { return }
-                resumed = true
-                Task { @MainActor [weak self] in
-                    self?.onUtteranceFinished?()
-                    continuation.resume()
+                resumed.withLock { alreadyResumed in
+                    guard !alreadyResumed else { return }
+                    alreadyResumed = true
+                    Task { @MainActor [weak self] in
+                        self?.onUtteranceFinished?()
+                        continuation.resume()
+                    }
                 }
             }
             player.play()
@@ -270,15 +286,20 @@ final class KokoroManager {
 
     private func performDownload() async throws {
         // Download model safetensors from HuggingFace (~160 MB)
+        downloadProgress = 0.05
         if !FileManager.default.fileExists(atPath: modelFileURL.path) {
             try await downloadFile(from: ModelConfig.Kokoro.modelDownloadURL, to: modelFileURL, label: "model")
         }
         downloadProgress = 0.7
 
         // Download voices.npz from KokoroTestApp via Git LFS (~14.6 MB)
+        downloadProgress = 0.75
         if !FileManager.default.fileExists(atPath: voicesFileURL.path) {
             try await downloadFile(from: ModelConfig.Kokoro.voicesDownloadURL, to: voicesFileURL, label: "voices")
         }
+        downloadProgress = 0.95
+
+        // Brief pause to let the UI show completion
         downloadProgress = 1.0
     }
 
@@ -307,7 +328,10 @@ final class KokoroManager {
     private func downloadFileOnce(from url: URL, to destination: URL, label: String) async throws {
         logger.info("Downloading Kokoro \(label) from \(url)")
 
-        let (tempURL, response) = try await URLSession.shared.download(from: url)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+
+        let (tempURL, response) = try await URLSession.shared.download(for: request)
         try Task.checkCancellation()
 
         guard let httpResponse = response as? HTTPURLResponse,
@@ -318,6 +342,25 @@ final class KokoroManager {
         }
 
         try FileManager.default.moveItem(at: tempURL, to: destination)
+
+        // Verify SHA-256 integrity if a real hash is configured
+        let expectedHash = label == "model"
+            ? ModelConfig.Kokoro.modelSHA256
+            : ModelConfig.Kokoro.voicesSHA256
+
+        if expectedHash != "PLACEHOLDER_COMPUTE_ON_FIRST_DOWNLOAD" {
+            let fileData = try Data(contentsOf: destination)
+            let digest = SHA256.hash(data: fileData)
+            let actualHash = digest.map { String(format: "%02x", $0) }.joined()
+
+            if actualHash != expectedHash {
+                try? FileManager.default.removeItem(at: destination)
+                logger.error("SHA-256 mismatch for \(label): expected \(expectedHash), got \(actualHash)")
+                throw KokoroError.integrityCheckFailed(label)
+            }
+            logger.info("Kokoro \(label) SHA-256 verified")
+        }
+
         logger.info("Kokoro \(label) downloaded successfully")
     }
 
@@ -326,6 +369,7 @@ final class KokoroManager {
     enum KokoroError: LocalizedError {
         case downloadFailed(String)
         case voicesEmpty
+        case integrityCheckFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -333,6 +377,8 @@ final class KokoroManager {
                 return "Failed to download Kokoro \(file). Please check your connection."
             case .voicesEmpty:
                 return "Voice data file is empty or corrupted."
+            case .integrityCheckFailed(let file):
+                return "Integrity check failed for Kokoro \(file). The download may be corrupted."
             }
         }
     }

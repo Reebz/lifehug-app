@@ -320,14 +320,19 @@ final class STTService {
 }
 
 /// Thread-safe box for mutable transcript state shared with the @Sendable recognition callback.
-/// The Speech framework serializes callback invocations, so no lock is needed.
-/// Using @unchecked Sendable instead of nonisolated(unsafe) vars makes the safety contract explicit.
+/// Uses OSAllocatedUnfairLock for atomic access to the mutable text property.
+/// Using @unchecked Sendable because the lock ensures thread safety.
 private final class SegmentState: @unchecked Sendable {
     let base: String
-    var text: String = ""
+    private let lock = OSAllocatedUnfairLock(initialState: "")
 
     init(base: String) {
         self.base = base
+    }
+
+    var text: String {
+        get { lock.withLock { $0 } }
+        set { lock.withLock { $0 = newValue } }
     }
 }
 

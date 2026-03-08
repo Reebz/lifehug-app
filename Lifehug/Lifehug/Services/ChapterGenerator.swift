@@ -37,6 +37,11 @@ enum ChapterGenerator {
         )
         logger.info("Extract pass complete: \(bullets.count) characters")
 
+        // Re-check memory before pass 2
+        guard MemoryMonitor.currentPressure < .critical else {
+            throw ChapterGeneratorError.insufficientMemory
+        }
+
         // Pass 2: Outline
         onPassChange?(.outlining)
         let outline = try await buildOutline(
@@ -45,6 +50,11 @@ enum ChapterGenerator {
             llmService: llmService
         )
         logger.info("Outline pass complete: \(outline.count) characters")
+
+        // Re-check memory before pass 3
+        guard MemoryMonitor.currentPressure < .critical else {
+            throw ChapterGeneratorError.insufficientMemory
+        }
 
         // Pass 3: Flesh out
         onPassChange?(.writing)
