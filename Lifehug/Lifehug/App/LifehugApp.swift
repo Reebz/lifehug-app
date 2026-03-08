@@ -11,6 +11,12 @@ struct LifehugApp: App {
     @State private var kokoroManager = KokoroManager()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        UISegmentedControl.appearance().selectedSegmentTintColor = UIColor(Theme.terracotta)
+        UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+        UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor(Theme.walnut)], for: .normal)
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

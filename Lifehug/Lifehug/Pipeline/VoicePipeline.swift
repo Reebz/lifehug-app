@@ -16,6 +16,7 @@ final class VoicePipeline {
     var partialTranscript: String = ""
     var responseChunks: String = ""
     var error: String?
+    private(set) var terminationDetected: Bool = false
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Pipeline")
     private let sttService: STTService
@@ -81,6 +82,32 @@ final class VoicePipeline {
     func wireAudioObservers() {
         observeInterruptions()
         observeRouteChanges()
+    }
+
+    /// Wire auto-reopen: after TTS finishes speaking, automatically reopen the mic.
+    func wireAutoReopen() {
+        autoReopenMic = true
+        observeInterruptions()
+        observeRouteChanges()
+        ttsService.onAllSpeechFinished = { [weak self] in
+            guard let self = self, self.autoReopenMic else { return }
+            if self.state == .speaking || self.state == .processing {
+                self.state = .idle
+                Task { @MainActor [weak self] in
+                    // Brief delay to avoid audio feedback between TTS output and mic input
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard let self = self, self.autoReopenMic, self.state == .idle else { return }
+                    self.startListening()
+                }
+            }
+        }
+    }
+
+    /// Unwire auto-reopen and remove audio observers.
+    func unwireAutoReopen() {
+        autoReopenMic = false
+        ttsService.onAllSpeechFinished = nil
+        removeAudioObservers()
     }
 
     /// Process a text input directly (bypass STT)
@@ -172,6 +199,7 @@ final class VoicePipeline {
 
         if finalTranscript.isEmpty {
             if terminatedByPhrase {
+                terminationDetected = true
                 onTerminationDetected?()
                 state = .idle
             } else {
@@ -182,7 +210,10 @@ final class VoicePipeline {
         }
 
         if terminatedByPhrase {
+            terminationDetected = true
             onTerminationDetected?()
+            state = .idle
+            return
         }
 
         onTranscriptFinalized?(finalTranscript)
@@ -190,7 +221,7 @@ final class VoicePipeline {
     }
 
     /// Removes any trailing termination phrase from the transcript.
-    private func stripTerminationPhrase(from text: String) -> String {
+    func stripTerminationPhrase(from text: String) -> String {
         let lowered = text.lowercased()
         for phrase in Self.terminationPhrases {
             if lowered.hasSuffix(phrase) {
@@ -237,6 +268,14 @@ final class VoicePipeline {
                 }
 
                 onResponseGenerated?(fullResponse)
+
+                // Auto-reopen mic for conversation loop
+                if self.autoReopenMic {
+                    self.state = .idle
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled, self.autoReopenMic, self.state == .idle else { return }
+                    self.startListening()
+                }
 
             } catch {
                 guard !Task.isCancelled else { return }

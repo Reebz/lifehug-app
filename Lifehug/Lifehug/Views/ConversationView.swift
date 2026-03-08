@@ -12,6 +12,8 @@ struct ConversationView: View {
     @Binding var rotationState: RotationState
     @Binding var questionBankMarkdown: String
 
+    var startInVoiceMode: Bool = false
+
     @State private var messageText: String = ""
     @State private var showSavedConfirmation: Bool = false
     @State private var isSaving: Bool = false
@@ -55,18 +57,43 @@ struct ConversationView: View {
                 Button {
                     toggleVoiceMode()
                 } label: {
-                    Image(systemName: voiceMode ? "mic.fill" : "mic.slash")
-                        .foregroundStyle(voiceMode ? Theme.terracotta : Theme.walnut)
+                    ZStack {
+                        Circle()
+                            .fill(voiceMode ? Theme.terracotta : Theme.walnut.opacity(0.15))
+                            .frame(width: 36, height: 36)
+                        Image(systemName: voiceMode ? "mic.fill" : "mic.slash")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(voiceMode ? .white : Theme.walnut)
+                    }
                 }
                 .accessibilityLabel(voiceMode ? "Disable voice mode" : "Enable voice mode")
             }
         }
         .task {
-            // Generate initial LLM response for the user's first message
+            if startInVoiceMode {
+                toggleVoiceMode()
+                // Wait briefly for pipeline to be ready
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+
             if let lastTurn = session.conversationTurns.last,
                lastTurn.role == .user,
                !hasStartedLLMSession {
-                await generateLLMResponse(to: lastTurn.text)
+                if voiceMode, let pipeline {
+                    // Route through voice pipeline so response is spoken
+                    if !hasStartedLLMSession {
+                        let userName = (try? storageService.readConfig().name) ?? "friend"
+                        let prompt = LLMService.memoirInterviewerPrompt(
+                            userName: userName,
+                            questionText: session.currentQuestion?.text ?? ""
+                        )
+                        llmService.startNewSession(systemPrompt: prompt)
+                        hasStartedLLMSession = true
+                    }
+                    pipeline.processTextInput(lastTurn.text)
+                } else {
+                    await generateLLMResponse(to: lastTurn.text)
+                }
             }
         }
         .onDisappear {
@@ -163,11 +190,7 @@ struct ConversationView: View {
         switch role {
         case .user:
             RoundedRectangle(cornerRadius: 18)
-                .fill(Theme.cream)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
-                )
+                .fill(Theme.terracotta.opacity(0.1))
         case .assistant:
             RoundedRectangle(cornerRadius: 18)
                 .fill(.white)
@@ -383,6 +406,7 @@ struct ConversationView: View {
                 }
 
                 pipeline = p
+                p.startListening()
             }
         } else {
             voiceModeTask?.cancel()
