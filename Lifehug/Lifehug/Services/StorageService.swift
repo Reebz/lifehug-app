@@ -21,7 +21,8 @@ final class StorageService {
     static var silenceTimeout: TimeInterval {
         get {
             let val = UserDefaults.standard.double(forKey: silenceTimeoutKey)
-            return val > 0 ? val : 3.0
+            // 0 means disabled; return 0 if key not set (default = off)
+            return UserDefaults.standard.object(forKey: silenceTimeoutKey) != nil ? val : 0
         }
         set { UserDefaults.standard.set(newValue, forKey: silenceTimeoutKey) }
     }
