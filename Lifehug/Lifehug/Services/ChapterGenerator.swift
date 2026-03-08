@@ -23,6 +23,11 @@ enum ChapterGenerator {
         llmService: LLMService,
         onPassChange: ((Pass) -> Void)? = nil
     ) async throws -> String {
+        // Pre-flight memory check
+        guard MemoryMonitor.currentPressure < .critical else {
+            throw ChapterGeneratorError.insufficientMemory
+        }
+
         // Pass 1: Extract — batch into groups of 10 for large answer sets
         onPassChange?(.extracting)
         let bullets = try await extractBullets(
@@ -53,6 +58,17 @@ enum ChapterGenerator {
         logger.info("Writing pass complete: \(draft.count) characters")
 
         return draft
+    }
+
+    enum ChapterGeneratorError: Error, LocalizedError {
+        case insufficientMemory
+
+        var errorDescription: String? {
+            switch self {
+            case .insufficientMemory:
+                return "Not enough memory to generate a chapter. Close other apps and try again."
+            }
+        }
     }
 
     // MARK: - Pass 1: Extract

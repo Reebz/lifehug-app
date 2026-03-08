@@ -326,4 +326,5 @@ struct DailyQuestionView: View {
 #Preview {
     DailyQuestionView()
         .environment(SessionState())
+        .environment(STTService())
 }

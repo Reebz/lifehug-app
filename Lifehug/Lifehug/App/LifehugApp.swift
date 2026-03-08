@@ -29,8 +29,19 @@ struct LifehugApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     modelState.handleScenePhaseChange(newPhase)
-                    if newPhase == .background {
+                    switch newPhase {
+                    case .background:
                         kokoroManager.unloadEngine()
+                        llmService.unloadModel()
+                    case .active:
+                        // Reload LLM if it was previously loaded
+                        if !llmService.isLoaded {
+                            Task {
+                                try? await llmService.loadModel()
+                            }
+                        }
+                    default:
+                        break
                     }
                 }
         }

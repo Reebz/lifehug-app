@@ -3,6 +3,8 @@ import SwiftUI
 struct ConversationView: View {
     @Environment(SessionState.self) private var session
     @Environment(LLMService.self) private var llmService
+    @Environment(STTService.self) private var sttService
+    @Environment(TTSService.self) private var ttsService
     @Environment(\.dismiss) private var dismiss
 
     @Binding var questions: [Question]
@@ -16,6 +18,8 @@ struct ConversationView: View {
     @State private var isThinking: Bool = false
     @State private var saveError: String?
     @State private var hasStartedLLMSession: Bool = false
+    @State private var voiceMode: Bool = false
+    @State private var pipeline: VoicePipeline?
 
     private let storageService = StorageService()
 
@@ -39,11 +43,21 @@ struct ConversationView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
+                    pipeline?.stopAll()
                     dismiss()
                 } label: {
                     Image(systemName: "chevron.left")
                         .foregroundStyle(Theme.warmCharcoal)
                 }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    toggleVoiceMode()
+                } label: {
+                    Image(systemName: voiceMode ? "mic.fill" : "mic.slash")
+                        .foregroundStyle(voiceMode ? Theme.terracotta : Theme.walnut)
+                }
+                .accessibilityLabel(voiceMode ? "Disable voice mode" : "Enable voice mode")
             }
         }
         .task {
@@ -53,6 +67,9 @@ struct ConversationView: View {
                !hasStartedLLMSession {
                 await generateLLMResponse(to: lastTurn.text)
             }
+        }
+        .onDisappear {
+            pipeline?.stopAll()
         }
     }
 
@@ -158,7 +175,16 @@ struct ConversationView: View {
 
     // MARK: - Input Bar
 
+    @ViewBuilder
     private var inputBar: some View {
+        if voiceMode {
+            voiceInputBar
+        } else {
+            textInputBar
+        }
+    }
+
+    private var textInputBar: some View {
         HStack(spacing: 12) {
             TextField("Add more to your answer...", text: $messageText, axis: .vertical)
                 .lineLimit(1...4)
@@ -181,6 +207,78 @@ struct ConversationView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(Theme.cream)
+    }
+
+    private var voiceInputBar: some View {
+        VStack(spacing: 8) {
+            if let pipeline, !pipeline.partialTranscript.isEmpty {
+                Text(pipeline.partialTranscript)
+                    .font(Theme.captionSerifFont)
+                    .foregroundStyle(Theme.walnut)
+                    .lineLimit(2)
+                    .padding(.horizontal, 16)
+            }
+
+            HStack(spacing: 16) {
+                if pipeline?.state == .listening {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Theme.softCoral)
+                            .frame(width: 8, height: 8)
+                        Text("Listening...")
+                            .font(.caption)
+                            .foregroundStyle(Theme.walnut)
+                    }
+                } else if pipeline?.state == .processing {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Theme.terracotta)
+                        Text("Thinking...")
+                            .font(.caption)
+                            .foregroundStyle(Theme.walnut)
+                    }
+                } else if pipeline?.state == .speaking {
+                    HStack(spacing: 6) {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(Theme.terracotta)
+                        Text("Speaking...")
+                            .font(.caption)
+                            .foregroundStyle(Theme.walnut)
+                    }
+                } else {
+                    Text("Tap mic to start")
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
+
+                Spacer()
+
+                Button {
+                    if pipeline?.state == .listening {
+                        pipeline?.stopAll()
+                    } else if pipeline?.state == .speaking {
+                        pipeline?.interrupt()
+                    } else {
+                        pipeline?.startListening()
+                    }
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(pipeline?.state == .listening ? Theme.softCoral : Theme.terracotta)
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: pipeline?.state == .listening ? "stop.fill" : "mic.fill")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .accessibilityLabel(pipeline?.state == .listening ? "Stop listening" : "Start listening")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
         .background(Theme.cream)
     }
 
@@ -241,6 +339,43 @@ struct ConversationView: View {
     }
 
     // MARK: - Actions
+
+    private func toggleVoiceMode() {
+        voiceMode.toggle()
+
+        if voiceMode {
+            // Create pipeline and wire callbacks
+            let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
+            p.autoReopenMic = true
+            p.wireAudioObservers()
+
+            p.onTranscriptFinalized = { text in
+                session.addTurn(role: .user, text: text)
+            }
+            p.onResponseGenerated = { text in
+                session.addTurn(role: .assistant, text: text)
+            }
+            p.onTerminationDetected = {
+                Task { await endSession() }
+            }
+
+            // Start LLM session if needed
+            if !hasStartedLLMSession {
+                let userName = (try? storageService.readConfig().name) ?? "friend"
+                let prompt = LLMService.memoirInterviewerPrompt(
+                    userName: userName,
+                    questionText: session.currentQuestion?.text ?? ""
+                )
+                llmService.startNewSession(systemPrompt: prompt)
+                hasStartedLLMSession = true
+            }
+
+            pipeline = p
+        } else {
+            pipeline?.stopAll()
+            pipeline = nil
+        }
+    }
 
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -366,5 +501,8 @@ struct ConversationView: View {
             questionBankMarkdown: .constant("")
         )
         .environment(SessionState())
+        .environment(LLMService())
+        .environment(STTService())
+        .environment(TTSService())
     }
 }

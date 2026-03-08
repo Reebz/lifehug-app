@@ -148,7 +148,7 @@ struct CoverageView: View {
     }
 
     private func colorForCategory(_ letter: Character) -> Color {
-        guard let info = coverage[letter] else { return Theme.warmGray }
+        guard let info = coverage[letter] else { return Theme.walnut }
         return colorForStatus(info.status)
     }
 
@@ -195,7 +195,7 @@ private struct CategoryDetailSheet: View {
                 ForEach(questions) { question in
                     HStack(spacing: 12) {
                         Image(systemName: question.answered ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(question.answered ? categoryColor : Theme.warmGray)
+                            .foregroundStyle(question.answered ? categoryColor : Theme.walnut)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(question.id)

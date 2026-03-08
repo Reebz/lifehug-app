@@ -10,7 +10,7 @@ final class StorageService {
     private static let iCloudBackupKey = "iCloudBackupEnabled"
 
     static var iCloudBackupEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: iCloudBackupKey) as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: iCloudBackupKey) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: iCloudBackupKey) }
     }
 
