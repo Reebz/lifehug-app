@@ -546,6 +546,7 @@ struct AnswerDetailView: View {
 
     @State private var isEditing = false
     @State private var editedText: String = ""
+    @State private var displayText: String = ""
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -592,7 +593,7 @@ struct AnswerDetailView: View {
                         )
                         .foregroundStyle(Theme.warmCharcoal)
                 } else {
-                    Text(answer.answerText)
+                    Text(displayText)
                         .font(.body)
                         .foregroundStyle(Theme.warmCharcoal)
                         .padding()
@@ -655,6 +656,9 @@ struct AnswerDetailView: View {
                 .foregroundStyle(Theme.terracotta)
             }
         }
+        .onAppear {
+            displayText = answer.answerText
+        }
     }
 
     private func saveEditedAnswer() {
@@ -672,6 +676,7 @@ struct AnswerDetailView: View {
         )
         do {
             try storage.saveAnswer(updated)
+            displayText = editedText
             isEditing = false
             onSave()
         } catch {

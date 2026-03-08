@@ -26,6 +26,10 @@ final class KokoroManager {
     // MARK: - Private
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Kokoro")
+    // SAFETY: nonisolated(unsafe) is needed because KokoroTTS and MLXArray are not
+    // Sendable but must cross isolation boundaries to Task.detached for heavy computation.
+    // All mutations occur on @MainActor (loadEngine, unloadEngine, deleteModel).
+    // Reads in Task.detached (speak, loadEngine) await completion before the next mutation.
     nonisolated(unsafe) private var ttsEngine: KokoroTTS?
     nonisolated(unsafe) private var voices: [String: MLXArray] = [:]
     private var audioEngine: AVAudioEngine?
@@ -37,8 +41,8 @@ final class KokoroManager {
 
     // MARK: - File Locations
 
-    private static let modelFileName = "kokoro-v1_0.safetensors"
-    private static let voicesFileName = "voices.npz"
+    private static let modelFileName = ModelConfig.Kokoro.modelFileName
+    private static let voicesFileName = ModelConfig.Kokoro.voicesFileName
 
     private var kokoroDir: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -106,6 +110,11 @@ final class KokoroManager {
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
+        // Clean up any partial downloads
+        if !isModelDownloaded {
+            try? FileManager.default.removeItem(at: modelFileURL)
+            try? FileManager.default.removeItem(at: voicesFileURL)
+        }
         phase = .idle
     }
 
@@ -244,7 +253,10 @@ final class KokoroManager {
         }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            player.scheduleBuffer(buffer, at: nil, options: .interrupts) {
+            nonisolated(unsafe) var resumed = false
+            player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { _ in
+                guard !resumed else { return }
+                resumed = true
                 Task { @MainActor [weak self] in
                     self?.onUtteranceFinished?()
                     continuation.resume()
@@ -259,20 +271,40 @@ final class KokoroManager {
     private func performDownload() async throws {
         // Download model safetensors from HuggingFace (~160 MB)
         if !FileManager.default.fileExists(atPath: modelFileURL.path) {
-            let modelURL = URL(string: "https://huggingface.co/mlx-community/Kokoro-82M-bf16/resolve/main/kokoro-v1_0.safetensors")!
-            try await downloadFile(from: modelURL, to: modelFileURL, label: "model")
+            try await downloadFile(from: ModelConfig.Kokoro.modelDownloadURL, to: modelFileURL, label: "model")
         }
         downloadProgress = 0.7
 
         // Download voices.npz from KokoroTestApp via Git LFS (~14.6 MB)
         if !FileManager.default.fileExists(atPath: voicesFileURL.path) {
-            let voicesURL = URL(string: "https://media.githubusercontent.com/media/mlalma/KokoroTestApp/main/Resources/voices.npz")!
-            try await downloadFile(from: voicesURL, to: voicesFileURL, label: "voices")
+            try await downloadFile(from: ModelConfig.Kokoro.voicesDownloadURL, to: voicesFileURL, label: "voices")
         }
         downloadProgress = 1.0
     }
 
     private func downloadFile(from url: URL, to destination: URL, label: String) async throws {
+        // Clean up any partial/leftover file from a previous failed download
+        try? FileManager.default.removeItem(at: destination)
+
+        do {
+            try await downloadFileOnce(from: url, to: destination, label: label)
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: destination)
+            throw CancellationError()
+        } catch {
+            // Clean up partial download
+            try? FileManager.default.removeItem(at: destination)
+            logger.warning("Kokoro \(label) download failed, retrying in 2s: \(error)")
+
+            // Retry once after a brief delay
+            try await Task.sleep(for: .seconds(2))
+            try Task.checkCancellation()
+            try? FileManager.default.removeItem(at: destination)
+            try await downloadFileOnce(from: url, to: destination, label: label)
+        }
+    }
+
+    private func downloadFileOnce(from url: URL, to destination: URL, label: String) async throws {
         logger.info("Downloading Kokoro \(label) from \(url)")
 
         let (tempURL, response) = try await URLSession.shared.download(from: url)
@@ -280,6 +312,8 @@ final class KokoroManager {
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
+            // Clean up the temp file from URLSession
+            try? FileManager.default.removeItem(at: tempURL)
             throw KokoroError.downloadFailed(label)
         }
 

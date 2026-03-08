@@ -21,6 +21,10 @@ final class STTService {
     private var accumulatedTranscript: String = ""
     /// Shared reference accessible from the @Sendable audio tap callback.
     /// The tap outlives individual recognition requests during chaining.
+    /// SAFETY: nonisolated(unsafe) is required because the audio tap callback runs on
+    /// the real-time render thread (not the main actor). Writes only occur on @MainActor
+    /// (startRecognition, chainRecognitionRequest, stopListening). The tap reads via
+    /// optional chaining — a nil check races benignly.
     nonisolated(unsafe) private var sharedRequest: SFSpeechAudioBufferRecognitionRequest?
 
     init() {
@@ -238,25 +242,25 @@ final class STTService {
         guard let recognizer else { return }
 
         // Snapshot the accumulated transcript so the @Sendable callback can build on it.
-        // This local var tracks the running transcript within this single recognition segment.
-        nonisolated(unsafe) var segmentBase = self.accumulatedTranscript
-        nonisolated(unsafe) var segmentText = ""
+        // Uses a Sendable box because the recognition callback is @Sendable. The Speech
+        // framework calls the callback serially, so no concurrent mutation occurs.
+        let segment = SegmentState(base: self.accumulatedTranscript)
 
         recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             guard let self else { return }
 
             if let result {
                 let text = result.bestTranscription.formattedString
-                if text.count > segmentText.count {
-                    segmentText = text
+                if text.count > segment.text.count {
+                    segment.text = text
                 }
 
                 // Full transcript = everything from prior segments + this segment
                 let fullTranscript: String
-                if segmentBase.isEmpty {
-                    fullTranscript = segmentText
+                if segment.base.isEmpty {
+                    fullTranscript = segment.text
                 } else {
-                    fullTranscript = segmentBase + " " + segmentText
+                    fullTranscript = segment.base + " " + segment.text
                 }
                 let isFinal = result.isFinal
 
@@ -284,12 +288,12 @@ final class STTService {
 
                 // Capture segment state before crossing isolation boundary
                 let currentFull: String
-                if segmentBase.isEmpty {
-                    currentFull = segmentText
-                } else if segmentText.isEmpty {
-                    currentFull = segmentBase
+                if segment.base.isEmpty {
+                    currentFull = segment.text
+                } else if segment.text.isEmpty {
+                    currentFull = segment.base
                 } else {
-                    currentFull = segmentBase + " " + segmentText
+                    currentFull = segment.base + " " + segment.text
                 }
 
                 Task { @MainActor in
@@ -313,6 +317,18 @@ final class STTService {
         }
     }
 
+}
+
+/// Thread-safe box for mutable transcript state shared with the @Sendable recognition callback.
+/// The Speech framework serializes callback invocations, so no lock is needed.
+/// Using @unchecked Sendable instead of nonisolated(unsafe) vars makes the safety contract explicit.
+private final class SegmentState: @unchecked Sendable {
+    let base: String
+    var text: String = ""
+
+    init(base: String) {
+        self.base = base
+    }
 }
 
 enum STTError: Error, LocalizedError {

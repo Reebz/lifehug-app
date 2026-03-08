@@ -10,7 +10,7 @@ import os
 final class ModelDownloader {
     // MARK: - Configuration
 
-    static let modelID = "mlx-community/Llama-3.2-1B-Instruct-4bit"
+    static let modelID = ModelConfig.LLM.modelID
 
     // MARK: - Observable State
 

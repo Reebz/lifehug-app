@@ -55,7 +55,9 @@ struct Answer {
 
     static func fromMarkdown(_ text: String) -> Answer? {
         let lines = text.components(separatedBy: "\n")
-        guard lines.count >= 6 else { return nil }
+
+        // Need at least 3 lines: header, metadata, dates
+        guard lines.count >= 3 else { return nil }
 
         // Parse header: # Question A1: What's your earliest memory?
         guard let headerLine = lines.first,
@@ -64,13 +66,13 @@ struct Answer {
         }
         let questionID = String(headerMatch.1)
         let questionText = String(headerMatch.2)
-        let categoryLetter = questionID.first!
+        guard let categoryLetter = questionID.first else { return nil }
 
         // Parse metadata: **Category:** A (Origins) | **Pass:** 1
-        let metaLine = lines[1]
         let categoryName: String
         let passNumber: Int
-        if let catMatch = metaLine.firstMatch(of: /\*\*Category:\*\* [A-Z] \((.+?)\) \| \*\*Pass:\*\* (\d+)/) {
+        if lines.count > 1,
+           let catMatch = lines[1].firstMatch(of: /\*\*Category:\*\* [A-Z] \((.+?)\) \| \*\*Pass:\*\* (\d+)/) {
             categoryName = String(catMatch.1)
             passNumber = Int(catMatch.2) ?? 1
         } else {
@@ -79,12 +81,12 @@ struct Answer {
         }
 
         // Parse dates: **Asked:** 2026-03-01 | **Answered:** 2026-03-01
-        let dateLine = lines[2]
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let askedDate: Date
         let answeredDate: Date
-        if let dateMatch = dateLine.firstMatch(of: /\*\*Asked:\*\* (\d{4}-\d{2}-\d{2}) \| \*\*Answered:\*\* (\d{4}-\d{2}-\d{2})/) {
+        if lines.count > 2,
+           let dateMatch = lines[2].firstMatch(of: /\*\*Asked:\*\* (\d{4}-\d{2}-\d{2}) \| \*\*Answered:\*\* (\d{4}-\d{2}-\d{2})/) {
             askedDate = dateFormatter.date(from: String(dateMatch.1)) ?? Date()
             answeredDate = dateFormatter.date(from: String(dateMatch.2)) ?? Date()
         } else {
@@ -96,7 +98,8 @@ struct Answer {
         var answerLines: [String] = []
         var inAnswer = false
         var separatorCount = 0
-        for line in lines.dropFirst(3) {
+        let contentLines = lines.count > 3 ? Array(lines.dropFirst(3)) : []
+        for line in contentLines {
             if line.trimmingCharacters(in: .whitespaces) == "---" {
                 separatorCount += 1
                 if separatorCount == 1 {

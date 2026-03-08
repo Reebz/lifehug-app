@@ -41,7 +41,12 @@ final class SessionState {
     func autoSave() {
         guard currentQuestion != nil, !conversationTurns.isEmpty else { return }
         let saveable = conversationTurns.map { SaveableTurn(role: $0.role == .user ? "user" : "assistant", text: $0.text, timestamp: $0.timestamp) }
-        let payload = AutoSavePayload(questionID: currentQuestion?.id, turns: saveable)
+        let payload = AutoSavePayload(
+            questionID: currentQuestion?.id,
+            questionText: currentQuestion?.text,
+            questionCategory: currentQuestion.map { String($0.category) },
+            turns: saveable
+        )
         if let data = try? JSONEncoder().encode(payload) {
             UserDefaults.standard.set(data, forKey: Self.autoSaveKey)
         }
@@ -54,6 +59,13 @@ final class SessionState {
         conversationTurns = payload.turns.map {
             ConversationTurn(role: $0.role == "user" ? .user : .assistant, text: $0.text, timestamp: $0.timestamp)
         }
+
+        // Restore question context if available
+        if let id = payload.questionID, let text = payload.questionText {
+            let category = payload.questionCategory?.first ?? "A"
+            currentQuestion = Question(id: id, category: category, text: text, answered: false)
+        }
+
         logger.info("Restored \(self.conversationTurns.count) conversation turns from auto-save")
     }
 
@@ -69,6 +81,8 @@ final class SessionState {
 
     private struct AutoSavePayload: Codable {
         let questionID: String?
+        let questionText: String?
+        let questionCategory: String?
         let turns: [SaveableTurn]
     }
 }

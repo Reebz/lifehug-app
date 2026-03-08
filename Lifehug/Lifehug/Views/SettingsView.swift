@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var iCloudBackupEnabled: Bool = StorageService.iCloudBackupEnabled
     @State private var showDeleteModelConfirmation = false
     @State private var showResetConfirmation = false
+    @State private var showExportAlert = false
+    @State private var exportAlertMessage = ""
     @State private var modelSizeMB: String = "---"
     @State private var storageSizeMB: String = "---"
 
@@ -57,6 +59,11 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This will delete all your answers, settings, and model data. This action cannot be undone.")
+            }
+            .alert("Export", isPresented: $showExportAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(exportAlertMessage)
             }
         }
     }
@@ -422,7 +429,8 @@ struct SettingsView: View {
     }
 
     private func requestNotificationPermission() {
-        NotificationService.requestPermission { granted in
+        Task {
+            let granted = await NotificationService.requestPermissionAsync()
             if granted {
                 NotificationService.scheduleDailyReminder(at: reminderTime)
                 notificationDenied = false
@@ -471,14 +479,22 @@ struct SettingsView: View {
     private func exportAnswers() {
         do {
             let answerFiles = try storage.listAnswerFiles()
-            guard !answerFiles.isEmpty else { return }
+            guard !answerFiles.isEmpty else {
+                exportAlertMessage = "No answers to export yet."
+                showExportAlert = true
+                return
+            }
 
             // Share the individual markdown files
             let scene = UIApplication.shared.connectedScenes
                 .compactMap { $0 as? UIWindowScene }
                 .first
             guard let window = scene?.windows.first,
-                  let rootVC = window.rootViewController else { return }
+                  let rootVC = window.rootViewController else {
+                exportAlertMessage = "Unable to present the share sheet. Please try again."
+                showExportAlert = true
+                return
+            }
 
             let activityVC = UIActivityViewController(
                 activityItems: answerFiles,
@@ -494,7 +510,8 @@ struct SettingsView: View {
 
             rootVC.present(activityVC, animated: true)
         } catch {
-            // Export failed
+            exportAlertMessage = "Export failed: \(error.localizedDescription)"
+            showExportAlert = true
         }
     }
 
@@ -544,6 +561,16 @@ enum NotificationService {
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             DispatchQueue.main.async {
                 completion(granted)
+            }
+        }
+    }
+
+    /// Async wrapper that avoids @Sendable closure issues with @State property mutation.
+    static func requestPermissionAsync() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let center = UNUserNotificationCenter.current()
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                continuation.resume(returning: granted)
             }
         }
     }

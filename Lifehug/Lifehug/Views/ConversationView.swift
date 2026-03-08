@@ -341,37 +341,47 @@ struct ConversationView: View {
     // MARK: - Actions
 
     private func toggleVoiceMode() {
-        voiceMode.toggle()
+        if !voiceMode {
+            // Entering voice mode — ensure model is ready first
+            Task {
+                if !llmService.isLoaded {
+                    isThinking = true
+                    try? await llmService.loadModel()
+                    isThinking = false
+                }
 
-        if voiceMode {
-            // Create pipeline and wire callbacks
-            let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
-            p.autoReopenMic = true
-            p.wireAudioObservers()
+                voiceMode = true
 
-            p.onTranscriptFinalized = { text in
-                session.addTurn(role: .user, text: text)
-            }
-            p.onResponseGenerated = { text in
-                session.addTurn(role: .assistant, text: text)
-            }
-            p.onTerminationDetected = {
-                Task { await endSession() }
-            }
+                // Create pipeline and wire callbacks
+                let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
+                p.autoReopenMic = true
+                p.wireAudioObservers()
 
-            // Start LLM session if needed
-            if !hasStartedLLMSession {
-                let userName = (try? storageService.readConfig().name) ?? "friend"
-                let prompt = LLMService.memoirInterviewerPrompt(
-                    userName: userName,
-                    questionText: session.currentQuestion?.text ?? ""
-                )
-                llmService.startNewSession(systemPrompt: prompt)
-                hasStartedLLMSession = true
-            }
+                p.onTranscriptFinalized = { text in
+                    session.addTurn(role: .user, text: text)
+                }
+                p.onResponseGenerated = { text in
+                    session.addTurn(role: .assistant, text: text)
+                }
+                p.onTerminationDetected = {
+                    Task { await endSession() }
+                }
 
-            pipeline = p
+                // Start LLM session if needed
+                if !hasStartedLLMSession {
+                    let userName = (try? storageService.readConfig().name) ?? "friend"
+                    let prompt = LLMService.memoirInterviewerPrompt(
+                        userName: userName,
+                        questionText: session.currentQuestion?.text ?? ""
+                    )
+                    llmService.startNewSession(systemPrompt: prompt)
+                    hasStartedLLMSession = true
+                }
+
+                pipeline = p
+            }
         } else {
+            voiceMode = false
             pipeline?.stopAll()
             pipeline = nil
         }

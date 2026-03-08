@@ -12,6 +12,7 @@
 		1436E589C929D07F208CBE0D /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8E6D09AB13C9D9FC0B410D /* STTService.swift */; };
 		1446B259D1F62EF1D493C3C1 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = A7249E098BFE636081036CA1 /* MLXUtilsLibrary */; };
 		15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */ = {isa = PBXBuildFile; fileRef = E1483A254576AD113904B103 /* question-bank.md */; };
+		15AF6B1EBF82886EB2E065C6 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43895F80B5CF97DB267E7E7E /* ModelConfig.swift */; };
 		1F5491890ABC0F0937A4DAEF /* VoicePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC9FBF03F19F2F8942ACD58E /* VoicePipeline.swift */; };
 		2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */; };
 		386C56613644FB974AE75D35 /* RotationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */; };
@@ -68,6 +69,7 @@
 		35230BC9CDA761A04DD75E61 /* DailyQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyQuestionView.swift; sourceTree = "<group>"; };
 		3563AE0C35B70AC3940A61FC /* OnboardingTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTemplates.swift; sourceTree = "<group>"; };
 		40BEBD9BD593024E69189095 /* Category.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Category.swift; sourceTree = "<group>"; };
+		43895F80B5CF97DB267E7E7E /* ModelConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfig.swift; sourceTree = "<group>"; };
 		447EF5D17ABD64C7CC73ECA6 /* Lifehug.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lifehug.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		49878F792F0E942BA213E13E /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		4B265E197F7FA3E423981751 /* Question.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Question.swift; sourceTree = "<group>"; };
@@ -185,6 +187,7 @@
 				DC9A23229C292C066857E79D /* DesignTokens.swift */,
 				2F23D7C44A9B7E40F5E484F5 /* LifehugApp.swift */,
 				D4A10F20A159C2C51F02CDA8 /* MemoryMonitor.swift */,
+				43895F80B5CF97DB267E7E7E /* ModelConfig.swift */,
 				D2FC2AA88E660C6579714592 /* ModelState.swift */,
 				830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */,
 			);
@@ -361,6 +364,7 @@
 				C324FE40569DA679E7EC6B9D /* LaunchView.swift in Sources */,
 				5B0ACD7DB88F19DC6AF2D364 /* LifehugApp.swift in Sources */,
 				8AAAF792AD9674C6DDEF8F94 /* MemoryMonitor.swift in Sources */,
+				15AF6B1EBF82886EB2E065C6 /* ModelConfig.swift in Sources */,
 				5D2FB31F5CB4C8331733A97E /* ModelDownloader.swift in Sources */,
 				0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */,
 				57929C7460E85089153F011C /* OnboardingTemplates.swift in Sources */,

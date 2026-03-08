@@ -14,7 +14,7 @@ final class LLMService {
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
 
-    private static let modelID = "mlx-community/Llama-3.2-1B-Instruct-4bit"
+    private static let modelID = ModelConfig.LLM.modelID
 
     private let generateParameters = GenerateParameters(
         temperature: 0.7,
@@ -130,6 +130,8 @@ final class LLMService {
         isGenerating = true
         defer { isGenerating = false }
 
+        // SAFETY: ChatSession is not Sendable but the await call may cross isolation
+        // boundaries internally. No concurrent access — we await the result synchronously.
         nonisolated(unsafe) let unsafeSession = session
         let result = try await unsafeSession.respond(to: userMessage)
         return cleanResponse(result)
@@ -162,6 +164,8 @@ final class LLMService {
             generateParameters: generateParameters
         )
 
+        // SAFETY: ChatSession is not Sendable but the stream is consumed sequentially.
+        // No concurrent access — this local session is only used within this method.
         nonisolated(unsafe) let unsafeSession = session
 
         // Stream and collect tokens up to the specified limit
