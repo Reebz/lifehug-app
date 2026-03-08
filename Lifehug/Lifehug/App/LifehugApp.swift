@@ -15,6 +15,14 @@ struct LifehugApp: App {
         UISegmentedControl.appearance().selectedSegmentTintColor = UIColor(Theme.terracotta)
         UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
         UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor(Theme.walnut)], for: .normal)
+
+        // Tab bar — opaque cream to prevent iOS 26 liquid glass flickering
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithOpaqueBackground()
+        tabBarAppearance.backgroundColor = UIColor(Theme.cream)
+        // CRITICAL: Set BOTH to prevent black/clear flickering on scroll transitions
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
     }
 
     var body: some Scene {

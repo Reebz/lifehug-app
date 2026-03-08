@@ -217,6 +217,7 @@ final class STTService {
     private func resetSilenceTimer() {
         silenceTimer?.cancel()
         let timeout = StorageService.silenceTimeout
+        guard timeout > 0 else { return }  // disabled — no timer
         silenceTimer = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(timeout))
             guard let self, self.isRecording, !Task.isCancelled else { return }

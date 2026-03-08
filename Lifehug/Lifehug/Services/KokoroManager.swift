@@ -4,6 +4,7 @@ import CryptoKit
 @preconcurrency import MLX
 @preconcurrency import KokoroSwift
 @preconcurrency import MLXUtilsLibrary
+import UIKit
 import os
 
 /// Manages Kokoro neural TTS model download, loading, and audio synthesis.
@@ -285,6 +286,12 @@ final class KokoroManager {
     // MARK: - Download Implementation
 
     private func performDownload() async throws {
+        // Prevent device sleep during large download
+        await MainActor.run { UIApplication.shared.isIdleTimerDisabled = true }
+        defer {
+            Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = false }
+        }
+
         // Download model safetensors from HuggingFace (~160 MB)
         downloadProgress = 0.05
         if !FileManager.default.fileExists(atPath: modelFileURL.path) {
@@ -307,29 +314,34 @@ final class KokoroManager {
         // Clean up any partial/leftover file from a previous failed download
         try? FileManager.default.removeItem(at: destination)
 
-        do {
-            try await downloadFileOnce(from: url, to: destination, label: label)
-        } catch is CancellationError {
-            try? FileManager.default.removeItem(at: destination)
-            throw CancellationError()
-        } catch {
-            // Clean up partial download
-            try? FileManager.default.removeItem(at: destination)
-            logger.warning("Kokoro \(label) download failed, retrying in 2s: \(error)")
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                try await downloadFileOnce(from: url, to: destination, label: label)
+                return  // success
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: destination)
+                throw CancellationError()
+            } catch {
+                lastError = error
+                // Clean up partial download
+                try? FileManager.default.removeItem(at: destination)
+                logger.warning("Kokoro \(label) download attempt \(attempt + 1)/3 failed: \(error)")
 
-            // Retry once after a brief delay
-            try await Task.sleep(for: .seconds(2))
-            try Task.checkCancellation()
-            try? FileManager.default.removeItem(at: destination)
-            try await downloadFileOnce(from: url, to: destination, label: label)
+                if attempt < 2 {
+                    try await Task.sleep(for: .seconds(2))
+                    try Task.checkCancellation()
+                }
+            }
         }
+        throw lastError!
     }
 
     private func downloadFileOnce(from url: URL, to destination: URL, label: String) async throws {
         logger.info("Downloading Kokoro \(label) from \(url)")
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 60
+        request.timeoutInterval = 300
 
         let (tempURL, response) = try await URLSession.shared.download(for: request)
         try Task.checkCancellation()

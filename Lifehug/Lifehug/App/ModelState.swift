@@ -84,11 +84,16 @@ final class ModelState {
         case .background:
             downloader.unloadModel()
             isLoaded = false
-            status = .notDownloaded
+            // Do NOT set status = .notDownloaded — files are still on disk.
+            // Keep the current status (usually .ready) so the UI doesn't
+            // show a download prompt when the app returns to foreground.
         case .active:
-            Task {
-                await downloader.recheckModelAvailability()
-                syncFromDownloader()
+            if !isLoaded && downloader.isModelCached {
+                status = .loading
+                Task {
+                    await downloader.loadCachedModel()
+                    syncFromDownloader()
+                }
             }
         default:
             break

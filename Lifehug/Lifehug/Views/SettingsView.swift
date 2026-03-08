@@ -290,15 +290,15 @@ struct SettingsView: View {
                     Text("Silence Timeout")
                         .foregroundStyle(Theme.warmCharcoal)
                     Spacer()
-                    Text("\(silenceTimeout, specifier: "%.1f")s")
+                    Text(silenceTimeout == 0 ? "Off" : "\(silenceTimeout, specifier: "%.1f")s")
                         .foregroundStyle(Theme.walnut)
                 }
-                Slider(value: $silenceTimeout, in: 1.0...10.0, step: 0.5)
+                Slider(value: $silenceTimeout, in: 0...15.0, step: 0.5)
                     .tint(Theme.terracotta)
                     .onChange(of: silenceTimeout) { _, newValue in
                         StorageService.silenceTimeout = newValue
                     }
-                Text("Auto-stop listening after this many seconds of silence")
+                Text("Auto-stop listening after silence. Slide to zero to disable.")
                     .font(.caption)
                     .foregroundStyle(Theme.walnut)
             }

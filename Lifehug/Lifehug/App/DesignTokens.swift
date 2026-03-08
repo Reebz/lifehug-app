@@ -14,6 +14,7 @@ enum Theme {
     static let sageGreen = Color(hex: 0x7BA17D)
     static let amber = Color(hex: 0xD4A855)
     static let mutedRose = Color(hex: 0xC47070)
+    static let recordingRed = Color(hex: 0xE53E3E)
     static let cardBackground = Color.white
     static let cardShadow = Color.black.opacity(0.05)
 
