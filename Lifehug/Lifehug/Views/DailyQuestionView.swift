@@ -7,7 +7,6 @@ struct DailyQuestionView: View {
     @Environment(LLMService.self) private var llmService
     @Environment(TTSService.self) private var ttsService
     @State private var storageService = StorageService()
-    @State private var recordingTask: Task<Void, Never>?
     @State private var questions: [Question] = []
     @State private var categories: [Character: Category] = [:]
     @State private var rotationState: RotationState = .default
@@ -73,9 +72,6 @@ struct DailyQuestionView: View {
         }
         .task {
             await loadQuestionData()
-        }
-        .onChange(of: pipeline?.state) { _, newState in
-            // No-op: state changes drive UI reactively
         }
     }
 
@@ -478,7 +474,6 @@ struct DailyQuestionView: View {
             // Create pipeline and wire callbacks
             let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
             pipe.autoReopenMic = true
-            pipe.wireAudioObservers()
 
             pipe.onTranscriptFinalized = { text in
                 session.addTurn(role: .user, text: text)
@@ -640,70 +635,6 @@ struct DailyQuestionView: View {
             case .idle, .processing:
                 pipeline.startListening()
             }
-        }
-    }
-
-    // MARK: - Voice Recording (fallback)
-
-    private func startRecording() {
-        session.draftTranscript = ""
-
-        recordingTask = Task {
-            if !sttService.isAuthorized {
-                await sttService.requestAuthorization()
-            }
-            guard sttService.isAuthorized else {
-                loadError = sttService.error ?? "Microphone or speech recognition not authorized."
-                return
-            }
-
-            withAnimation(.easeOut(duration: 0.2)) {
-                session.isRecording = true
-            }
-
-            let stream = sttService.startListening()
-
-            // Check if STT hit an error during startup
-            if let sttError = sttService.error {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    session.isRecording = false
-                }
-                loadError = sttError
-                return
-            }
-
-            for await transcript in stream {
-                guard !Task.isCancelled else { return }
-                session.draftTranscript = transcript
-            }
-
-            guard !Task.isCancelled else { return }
-
-            session.isRecording = false
-            let text = session.draftTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty {
-                session.addTurn(role: .user, text: text)
-                navigateToConversation = true
-            }
-        }
-    }
-
-    private func stopRecording() {
-        recordingTask?.cancel()
-        recordingTask = nil
-        sttService.stopListening()
-
-        withAnimation(.easeOut(duration: 0.2)) {
-            session.isRecording = false
-        }
-
-        // Use sttService.partialTranscript as fallback — the stream may not have
-        // delivered the latest partial before the task was cancelled.
-        let text = (session.draftTranscript.isEmpty ? sttService.partialTranscript : session.draftTranscript)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty {
-            session.addTurn(role: .user, text: text)
-            navigateToConversation = true
         }
     }
 

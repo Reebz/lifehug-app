@@ -48,10 +48,17 @@ struct LifehugApp: App {
                         kokoroManager.unloadEngine()
                         llmService.unloadModel()
                     case .active:
-                        // Reload LLM if it was previously loaded
-                        if !llmService.isLoaded {
-                            Task {
+                        Task {
+                            // Reload LLM if it was previously loaded
+                            if !llmService.isLoaded {
                                 try? await llmService.loadModel()
+                            }
+                            // Reset Kokoro degradation if conditions allow
+                            if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
+                                ttsService.forceDegradedToSystem = false
+                                if !kokoroManager.isReady {
+                                    await kokoroManager.loadEngine()
+                                }
                             }
                         }
                     default:

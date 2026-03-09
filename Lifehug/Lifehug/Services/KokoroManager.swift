@@ -39,9 +39,6 @@ final class KokoroManager {
     private var playerNode: AVAudioPlayerNode?
     private var downloadTask: Task<Void, Never>?
 
-    /// Callback when the current utterance finishes playing.
-    var onUtteranceFinished: (@MainActor () -> Void)?
-
     // MARK: - File Locations
 
     private static let modelFileName = ModelConfig.Kokoro.modelFileName
@@ -196,28 +193,28 @@ final class KokoroManager {
     // MARK: - Synthesis
 
     /// Synthesize and play a sentence. Returns when playback completes.
-    func speak(_ text: String) async {
-        guard let engine = ttsEngine else { return }
+    /// Throws if synthesis fails (OOM, corrupted model, GPU error).
+    func speak(_ text: String) async throws {
+        guard let engine = ttsEngine else {
+            throw KokoroError.engineNotLoaded
+        }
 
         let voiceKey = Self.selectedVoice + ".npy"
         guard let voiceEmbedding = voices[voiceKey] else {
-            logger.warning("Voice '\(Self.selectedVoice)' not found, falling back")
-            return
+            logger.warning("Voice '\(Self.selectedVoice)' not found")
+            throw KokoroError.voiceNotFound(Self.selectedVoice)
         }
 
         // Determine language from voice prefix
         let language: Language = Self.selectedVoice.hasPrefix("b") ? .enGB : .enUS
 
-        do {
-            let (audio, _) = try await Task.detached {
-                try engine.generateAudio(voice: voiceEmbedding, language: language, text: text)
-            }.value
+        let (audio, _) = try await Task.detached {
+            try engine.generateAudio(voice: voiceEmbedding, language: language, text: text)
+        }.value
 
-            await playAudio(audio)
-        } catch {
-            logger.error("Kokoro synthesis failed: \(error)")
-        }
+        await playAudio(audio)
     }
+
 
     /// Stop any current playback.
     func stopPlayback() {
@@ -277,8 +274,7 @@ final class KokoroManager {
                 resumed.withLock { alreadyResumed in
                     guard !alreadyResumed else { return }
                     alreadyResumed = true
-                    Task { @MainActor [weak self] in
-                        self?.onUtteranceFinished?()
+                    Task { @MainActor in
                         continuation.resume()
                     }
                 }
@@ -370,8 +366,17 @@ final class KokoroManager {
         let expectedHash = ModelConfig.Kokoro.modelSHA256
 
         if expectedHash != "PLACEHOLDER_COMPUTE_ON_FIRST_DOWNLOAD" {
-            let fileData = try Data(contentsOf: destination)
-            let digest = SHA256.hash(data: fileData)
+            // Stream hash computation in 1MB chunks to avoid 160MB memory spike
+            let handle = try FileHandle(forReadingFrom: destination)
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while autoreleasepool(invoking: {
+                let chunk = handle.readData(ofLength: 1_048_576)
+                guard !chunk.isEmpty else { return false }
+                hasher.update(data: chunk)
+                return true
+            }) {}
+            let digest = hasher.finalize()
             let actualHash = digest.map { String(format: "%02x", $0) }.joined()
 
             if actualHash != expectedHash {
@@ -388,12 +393,18 @@ final class KokoroManager {
     // MARK: - Errors
 
     enum KokoroError: LocalizedError {
+        case engineNotLoaded
+        case voiceNotFound(String)
         case downloadFailed(String)
         case voicesEmpty
         case integrityCheckFailed(String)
 
         var errorDescription: String? {
             switch self {
+            case .engineNotLoaded:
+                return "Voice engine is not loaded."
+            case .voiceNotFound(let voice):
+                return "Voice '\(voice)' not found."
             case .downloadFailed(let file):
                 return "Failed to download Kokoro \(file). Please check your connection."
             case .voicesEmpty:

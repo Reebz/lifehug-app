@@ -313,7 +313,7 @@ struct SettingsView: View {
         else if prefix.hasPrefix("b") { gender = "Male" }
         else { gender = "" }
 
-        let accent = prefix.contains("f") ? "US" : "UK"
+        let accent = prefix.hasPrefix("a") ? "US" : "UK"
 
         if gender.isEmpty {
             return "\(name) (\(accent))"

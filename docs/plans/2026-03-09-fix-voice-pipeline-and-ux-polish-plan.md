@@ -404,12 +404,12 @@ The `phase` enum already distinguishes all states. No `hasPartialDownload` compu
 - [ ] voices.npz bundled in app — no separate download needed (Bug 5)
 
 ### Deferred (Follow-Up Tasks)
-- [ ] Sentence pipelining for inter-sentence gap elimination
-- [ ] CheckedContinuation for system TTS (enables removing wireAutoReopen)
+- [x] Sentence pipelining for inter-sentence gap elimination
+- [x] CheckedContinuation for system TTS (enables removing wireAutoReopen)
 - [ ] OSAllocatedUnfairLock for sharedRequest thread safety
 - [ ] segmentStartTime for silence vs timeout disambiguation
 - [ ] SHA-256 streaming verification (when real hashes are added)
-- [ ] Kokoro synthesis failure degradation to system TTS
+- [x] Kokoro synthesis failure degradation to system TTS
 
 ---
 

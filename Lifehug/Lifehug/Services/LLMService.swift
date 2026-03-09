@@ -82,35 +82,44 @@ final class LLMService {
 
     func streamResponse(to userMessage: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task { @MainActor in
-                guard let session = self.chatSession else {
-                    continuation.finish(throwing: LLMError.noActiveSession)
-                    return
-                }
+            guard let session = self.chatSession else {
+                continuation.finish(throwing: LLMError.noActiveSession)
+                return
+            }
 
-                self.isGenerating = true
+            self.isGenerating = true
+            let maxTokens = self.maxTokens
+
+            // SAFETY: ChatSession is not Sendable but we consume it sequentially.
+            // No concurrent access — we await completion before any mutation.
+            nonisolated(unsafe) let unsafeSession = session
+
+            // The AsyncThrowingStream build closure is @Sendable, so this Task
+            // does NOT inherit MainActor — token generation runs off-MainActor,
+            // allowing TTS playback to overlap.
+            Task {
                 var tokenCount = 0
 
                 do {
-                    for try await chunk in session.streamResponse(to: userMessage) {
-                        // Filter out system prompt leakage and special tokens
-                        let cleaned = self.cleanChunk(chunk)
+                    for try await chunk in unsafeSession.streamResponse(to: userMessage) {
+                        let cleaned = Self.cleanChunk(chunk)
                         if !cleaned.isEmpty {
                             continuation.yield(cleaned)
                         }
                         tokenCount += 1
-                        if tokenCount >= self.maxTokens {
+                        if tokenCount >= maxTokens {
                             break
                         }
                     }
                     continuation.finish()
                 } catch {
-                    self.logger.error("LLM generation error: \(error)")
                     continuation.finish(throwing: error)
                 }
 
-                self.isGenerating = false
-                self.logger.info("Generated \(tokenCount) tokens")
+                await MainActor.run {
+                    self.isGenerating = false
+                    self.logger.info("Generated \(tokenCount) tokens")
+                }
             }
         }
     }
@@ -172,7 +181,7 @@ final class LLMService {
         var result = ""
         var tokenCount = 0
         for try await chunk in unsafeSession.streamResponse(to: prompt) {
-            let cleaned = cleanChunk(chunk)
+            let cleaned = Self.cleanChunk(chunk)
             if !cleaned.isEmpty {
                 result += cleaned
             }
@@ -189,7 +198,7 @@ final class LLMService {
 
     // MARK: - Text Cleaning
 
-    private func cleanChunk(_ chunk: String) -> String {
+    private nonisolated static func cleanChunk(_ chunk: String) -> String {
         var text = chunk
         // Strip special tokens
         text = text.replacingOccurrences(of: "<|", with: "")

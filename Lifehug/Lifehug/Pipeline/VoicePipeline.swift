@@ -89,24 +89,11 @@ final class VoicePipeline {
         autoReopenMic = true
         observeInterruptions()
         observeRouteChanges()
-        ttsService.onAllSpeechFinished = { [weak self] in
-            guard let self = self, self.autoReopenMic else { return }
-            if self.state == .speaking || self.state == .processing {
-                self.state = .idle
-                Task { @MainActor [weak self] in
-                    // Brief delay to avoid audio feedback between TTS output and mic input
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard let self = self, self.autoReopenMic, self.state == .idle else { return }
-                    self.startListening()
-                }
-            }
-        }
     }
 
     /// Unwire auto-reopen and remove audio observers.
     func unwireAutoReopen() {
         autoReopenMic = false
-        ttsService.onAllSpeechFinished = nil
         removeAudioObservers()
     }
 
@@ -124,22 +111,8 @@ final class VoicePipeline {
         logger.info("Pipeline: \(String(describing: self.state)) -> \(String(describing: newState))")
         activeTask?.cancel()
         state = newState
-        activeTask = Task { await runState(newState) }
-    }
-
-    private func runState(_ state: PipelineState) async {
-        switch state {
-        case .idle:
-            break
-
-        case .listening:
-            await runListening()
-
-        case .processing:
-            break // Processing is kicked off by runListening or processTextInput
-
-        case .speaking:
-            break // Speaking is handled by TTS callbacks
+        if newState == .listening {
+            activeTask = Task { await runListening() }
         }
     }
 
@@ -243,37 +216,59 @@ final class VoicePipeline {
         activeTask?.cancel()
         activeTask = Task {
             do {
-                let stream = llmService.streamResponse(to: text)
+                // Pipeline: LLM produces sentences, TTS consumes them concurrently.
+                // The LLM keeps generating while TTS plays the previous sentence.
+                let (sentenceStream, continuation) = AsyncStream<String>.makeStream()
                 var fullResponse = ""
 
-                for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
+                // Producer: consume LLM stream, extract sentences, yield to TTS consumer
+                let producer = Task {
+                    do {
+                        let stream = llmService.streamResponse(to: text)
 
-                    fullResponse += chunk
-                    responseChunks = fullResponse
-                    sentenceBuffer.append(chunk)
+                        for try await chunk in stream {
+                            guard !Task.isCancelled else { return }
 
-                    // Check for complete sentences to send to TTS
-                    while let sentence = sentenceBuffer.extractSentence() {
-                        state = .speaking
-                        await ttsService.speak(sentence)
+                            fullResponse += chunk
+                            responseChunks = fullResponse
+                            sentenceBuffer.append(chunk)
+
+                            while let sentence = sentenceBuffer.extractSentence() {
+                                continuation.yield(sentence)
+                            }
+                        }
+
+                        // Flush remaining buffer
+                        let remaining = sentenceBuffer.flush()
+                        if !remaining.isEmpty {
+                            continuation.yield(remaining)
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish()
+                        throw error
                     }
                 }
 
-                // Flush remaining buffer
-                let remaining = sentenceBuffer.flush()
-                if !remaining.isEmpty {
+                // Consumer: speak sentences sequentially as they arrive
+                for await sentence in sentenceStream {
+                    guard !Task.isCancelled else { break }
                     state = .speaking
-                    await ttsService.speak(remaining)
+                    await ttsService.speak(sentence)
                 }
+
+                // Cancel producer if consumer exited early (e.g., pipeline interrupted)
+                producer.cancel()
+
+                // Propagate any producer error
+                try await producer.value
 
                 onResponseGenerated?(fullResponse)
 
                 // Auto-reopen mic for conversation loop
                 if self.autoReopenMic {
-                    self.state = .idle
                     try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled, self.autoReopenMic, self.state == .idle else { return }
+                    guard !Task.isCancelled, self.autoReopenMic else { return }
                     self.startListening()
                 }
 
@@ -402,14 +397,9 @@ final class VoicePipeline {
             // Degrade to system TTS but keep LLM loaded
             logger.warning("Elevated memory pressure (\(MemoryMonitor.availableMB)MB) — degrading to system TTS")
             ttsService.degradeToSystemTTS()
-        case .critical:
+        case .critical, .emergency:
             // Unload Kokoro model entirely and fall back to system TTS
-            logger.error("Critical memory pressure (\(MemoryMonitor.availableMB)MB) — unloading Kokoro")
-            ttsService.degradeToSystemTTS()
-            ttsService.unloadKokoroModel()
-        case .emergency:
-            // LLM might get killed by OS — log for diagnostics
-            logger.critical("Emergency memory pressure: \(MemoryMonitor.availableMB)MB available — OS may terminate app")
+            logger.error("Critical/emergency memory pressure (\(MemoryMonitor.availableMB)MB) — unloading Kokoro")
             ttsService.degradeToSystemTTS()
             ttsService.unloadKokoroModel()
         }
