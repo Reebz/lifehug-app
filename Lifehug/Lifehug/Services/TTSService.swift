@@ -46,7 +46,6 @@ final class TTSService {
             isSpeaking = true
             await kokoroManager?.speak(sentence)
             isSpeaking = false
-            onAllSpeechFinished?()
             return
         }
         sentenceQueue.append(sentence)

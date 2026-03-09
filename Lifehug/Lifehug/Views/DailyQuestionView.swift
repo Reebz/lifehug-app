@@ -26,8 +26,8 @@ struct DailyQuestionView: View {
     @State private var hasStartedLLMSession: Bool = false
 
     // Constants
-    private let micDiameter: CGFloat = 140
-    private let micIconSize: CGFloat = 56
+    private let micDiameter: CGFloat = 200
+    private let micIconSize: CGFloat = 72
 
     var body: some View {
         NavigationStack {
@@ -35,14 +35,31 @@ struct DailyQuestionView: View {
                 Theme.cream.ignoresSafeArea()
 
                 if voiceSessionActive {
-                    voiceSessionLayout
+                    voiceSessionContentArea
                 } else {
-                    idleLayout
+                    idleContentArea
                 }
 
                 if showSavedConfirmation {
                     savedOverlay
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 12) {
+                    micButton
+
+                    if showTypeInput {
+                        typeInputArea
+                    } else {
+                        typeInsteadButton
+                    }
+                }
+                .padding(.bottom, 8)
+                .background(
+                    Theme.cream
+                        .shadow(color: .black.opacity(0.04), radius: 8, y: -4)
+                        .ignoresSafeArea(edges: .bottom)
+                )
             }
             .navigationDestination(isPresented: $navigateToConversation) {
                 ConversationView(
@@ -52,6 +69,7 @@ struct DailyQuestionView: View {
                     questionBankMarkdown: $questionBankMarkdown
                 )
             }
+            .modifier(LifehugBarStyle())
         }
         .task {
             await loadQuestionData()
@@ -61,32 +79,24 @@ struct DailyQuestionView: View {
         }
     }
 
-    // MARK: - Idle Layout
+    // MARK: - Idle Content Area
 
-    private var idleLayout: some View {
+    private var idleContentArea: some View {
         VStack(spacing: 32) {
             Spacer()
 
             questionContent
 
-            micButton
-
             transcriptArea
-
-            if showTypeInput {
-                typeInputArea
-            } else {
-                typeInsteadButton
-            }
 
             Spacer()
         }
         .padding(.horizontal, Theme.horizontalPadding)
     }
 
-    // MARK: - Voice Session Layout
+    // MARK: - Voice Session Content Area
 
-    private var voiceSessionLayout: some View {
+    private var voiceSessionContentArea: some View {
         VStack(spacing: 16) {
             // Compact question at top
             if let question = session.currentQuestion {
@@ -192,14 +202,6 @@ struct DailyQuestionView: View {
                     )
             }
             .disabled(session.conversationTurns.isEmpty || isSaving)
-
-            // Mic button
-            micButton
-
-            // Type instead
-            typeInsteadButton
-
-            Spacer(minLength: 8)
         }
     }
 
@@ -225,10 +227,11 @@ struct DailyQuestionView: View {
         if let question = session.currentQuestion {
             VStack(spacing: 12) {
                 Text(question.text)
-                    .font(Theme.title2Font)
+                    .font(Theme.titleFont)
                     .foregroundStyle(Theme.warmCharcoal)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
+                    .minimumScaleFactor(0.7)
 
                 if let cat = categories[question.category] {
                     Text("\(String(question.category)): \(cat.name)")
@@ -310,7 +313,7 @@ struct DailyQuestionView: View {
                 .fill(micButtonColor)
                 .frame(width: micDiameter, height: micDiameter)
                 .shadow(
-                    color: micButtonColor.opacity(0.3),
+                    color: micButtonColor.opacity(0.15),
                     radius: (voiceSessionActive && pipeline?.state == .listening) ? 16 : 8,
                     y: 4
                 )
@@ -375,9 +378,16 @@ struct DailyQuestionView: View {
                 showTypeInput = true
             }
         } label: {
-            Text("Type instead")
-                .font(.subheadline)
-                .foregroundStyle(Theme.walnut)
+            HStack(spacing: 6) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 14, weight: .medium))
+                Text("Type instead")
+                    .font(.subheadline.weight(.medium))
+            }
+            .foregroundStyle(Theme.walnut)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Capsule().fill(Theme.walnut.opacity(0.08)))
         }
         .buttonStyle(.plain)
         .disabled(session.currentQuestion == nil)
@@ -538,6 +548,7 @@ struct DailyQuestionView: View {
 
     @MainActor
     private func endVoiceSessionAndSave() async {
+        guard !isSaving else { return }
         guard let question = session.currentQuestion else { return }
         isSaving = true
 

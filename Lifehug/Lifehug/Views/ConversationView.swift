@@ -43,6 +43,7 @@ struct ConversationView: View {
         .navigationTitle("Conversation")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .modifier(LifehugBarStyle())
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {

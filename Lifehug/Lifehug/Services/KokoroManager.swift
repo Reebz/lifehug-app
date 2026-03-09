@@ -4,6 +4,7 @@ import CryptoKit
 @preconcurrency import MLX
 @preconcurrency import KokoroSwift
 @preconcurrency import MLXUtilsLibrary
+import UIKit
 import os
 
 /// Manages Kokoro neural TTS model download, loading, and audio synthesis.
@@ -58,14 +59,19 @@ final class KokoroManager {
     }
 
     private var voicesFileURL: URL {
-        kokoroDir.appendingPathComponent(Self.voicesFileName)
+        // Prefer bundled voices (always available, no download needed)
+        if let bundled = Bundle.main.url(forResource: "voices", withExtension: "npz") {
+            return bundled
+        }
+        // Fallback to downloaded (legacy path)
+        return kokoroDir.appendingPathComponent(Self.voicesFileName)
     }
 
     // MARK: - Public API
 
     var isModelDownloaded: Bool {
-        FileManager.default.fileExists(atPath: modelFileURL.path) &&
-        FileManager.default.fileExists(atPath: voicesFileURL.path)
+        // Voices are bundled in the app, so only the model file needs to be downloaded
+        FileManager.default.fileExists(atPath: modelFileURL.path)
     }
 
     var isReady: Bool { phase == .ready }
@@ -112,10 +118,9 @@ final class KokoroManager {
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
-        // Clean up any partial downloads
+        // Clean up any partial model download
         if !isModelDownloaded {
             try? FileManager.default.removeItem(at: modelFileURL)
-            try? FileManager.default.removeItem(at: voicesFileURL)
         }
         phase = .idle
     }
@@ -282,24 +287,37 @@ final class KokoroManager {
         }
     }
 
+    // MARK: - Legacy Cleanup
+
+    /// Remove legacy downloaded voices.npz (now bundled in the app).
+    private func cleanupLegacyVoices() {
+        let legacy = kokoroDir.appendingPathComponent(Self.voicesFileName)
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.removeItem(at: legacy)
+            logger.info("Removed legacy downloaded voices.npz")
+        }
+    }
+
     // MARK: - Download Implementation
 
     private func performDownload() async throws {
+        // Prevent device sleep during large download
+        await MainActor.run { UIApplication.shared.isIdleTimerDisabled = true }
+        defer {
+            Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = false }
+        }
+
         // Download model safetensors from HuggingFace (~160 MB)
+        // Voices are bundled in the app — no download needed
         downloadProgress = 0.05
         if !FileManager.default.fileExists(atPath: modelFileURL.path) {
             try await downloadFile(from: ModelConfig.Kokoro.modelDownloadURL, to: modelFileURL, label: "model")
         }
-        downloadProgress = 0.7
-
-        // Download voices.npz from KokoroTestApp via Git LFS (~14.6 MB)
-        downloadProgress = 0.75
-        if !FileManager.default.fileExists(atPath: voicesFileURL.path) {
-            try await downloadFile(from: ModelConfig.Kokoro.voicesDownloadURL, to: voicesFileURL, label: "voices")
-        }
         downloadProgress = 0.95
 
-        // Brief pause to let the UI show completion
+        // Clean up any legacy downloaded voices (now bundled)
+        cleanupLegacyVoices()
+
         downloadProgress = 1.0
     }
 
@@ -307,29 +325,34 @@ final class KokoroManager {
         // Clean up any partial/leftover file from a previous failed download
         try? FileManager.default.removeItem(at: destination)
 
-        do {
-            try await downloadFileOnce(from: url, to: destination, label: label)
-        } catch is CancellationError {
-            try? FileManager.default.removeItem(at: destination)
-            throw CancellationError()
-        } catch {
-            // Clean up partial download
-            try? FileManager.default.removeItem(at: destination)
-            logger.warning("Kokoro \(label) download failed, retrying in 2s: \(error)")
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                try await downloadFileOnce(from: url, to: destination, label: label)
+                return  // success
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: destination)
+                throw CancellationError()
+            } catch {
+                lastError = error
+                // Clean up partial download
+                try? FileManager.default.removeItem(at: destination)
+                logger.warning("Kokoro \(label) download attempt \(attempt + 1)/3 failed: \(error)")
 
-            // Retry once after a brief delay
-            try await Task.sleep(for: .seconds(2))
-            try Task.checkCancellation()
-            try? FileManager.default.removeItem(at: destination)
-            try await downloadFileOnce(from: url, to: destination, label: label)
+                if attempt < 2 {
+                    try await Task.sleep(for: .seconds(2))
+                    try Task.checkCancellation()
+                }
+            }
         }
+        throw lastError!
     }
 
     private func downloadFileOnce(from url: URL, to destination: URL, label: String) async throws {
         logger.info("Downloading Kokoro \(label) from \(url)")
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 60
+        request.timeoutInterval = 300
 
         let (tempURL, response) = try await URLSession.shared.download(for: request)
         try Task.checkCancellation()
@@ -344,9 +367,7 @@ final class KokoroManager {
         try FileManager.default.moveItem(at: tempURL, to: destination)
 
         // Verify SHA-256 integrity if a real hash is configured
-        let expectedHash = label == "model"
-            ? ModelConfig.Kokoro.modelSHA256
-            : ModelConfig.Kokoro.voicesSHA256
+        let expectedHash = ModelConfig.Kokoro.modelSHA256
 
         if expectedHash != "PLACEHOLDER_COMPUTE_ON_FIRST_DOWNLOAD" {
             let fileData = try Data(contentsOf: destination)

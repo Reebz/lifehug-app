@@ -55,6 +55,7 @@ struct AnswersBrowserView: View {
                 loadCategories()
                 loadAnswers()
             }
+            .modifier(LifehugBarStyle())
         }
     }
 
@@ -460,6 +461,7 @@ struct ChapterDetailView: View {
         .background(Theme.cream.ignoresSafeArea())
         .navigationTitle(category.name)
         .navigationBarTitleDisplayMode(.inline)
+        .modifier(LifehugBarStyle())
         .task {
             loadExistingDraft()
         }
@@ -643,6 +645,7 @@ struct AnswerDetailView: View {
         .background(Theme.cream.ignoresSafeArea())
         .navigationTitle("Answer")
         .navigationBarTitleDisplayMode(.inline)
+        .modifier(LifehugBarStyle())
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isEditing ? "Save" : "Edit") {

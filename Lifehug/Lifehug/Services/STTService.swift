@@ -20,6 +20,7 @@ final class STTService {
     private var silenceTimer: Task<Void, Never>?
     private var shouldKeepListening: Bool = false
     private var accumulatedTranscript: String = ""
+    private var taskGeneration: Int = 0
     /// Shared reference accessible from the @Sendable audio tap callback.
     /// The tap outlives individual recognition requests during chaining.
     /// SAFETY: nonisolated(unsafe) is required because the audio tap callback runs on
@@ -203,6 +204,7 @@ final class STTService {
         isRecording = true
         resetSilenceTimer()
 
+        taskGeneration += 1
         installRecognitionTask(for: request)
     }
 
@@ -217,6 +219,7 @@ final class STTService {
     private func resetSilenceTimer() {
         silenceTimer?.cancel()
         let timeout = StorageService.silenceTimeout
+        guard timeout > 0 else { return }  // disabled — no timer
         silenceTimer = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(timeout))
             guard let self, self.isRecording, !Task.isCancelled else { return }
@@ -231,12 +234,6 @@ final class STTService {
     private func chainRecognitionRequest() {
         logger.info("Chaining new recognition request (60s limit reached)")
 
-        // Tear down old request/task without touching the audio engine
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
         guard let recognizer, recognizer.isAvailable else {
             logger.error("Recognizer unavailable during chain — stopping")
             continuation?.finish()
@@ -244,11 +241,22 @@ final class STTService {
             return
         }
 
-        let request = createRecognitionRequest()
-        self.recognitionRequest = request
-        self.sharedRequest = request
+        // 1. Create new request FIRST
+        let newRequest = createRecognitionRequest()
 
-        installRecognitionTask(for: request)
+        // 2. Swap sharedRequest — tap immediately feeds new request (no gap)
+        let oldRequest = self.recognitionRequest
+        let oldTask = self.recognitionTask
+        self.recognitionRequest = newRequest
+        self.sharedRequest = newRequest
+
+        // 3. NOW tear down old request/task
+        oldRequest?.endAudio()
+        oldTask?.cancel()
+
+        // 4. Install new recognition task
+        taskGeneration += 1
+        installRecognitionTask(for: newRequest)
     }
 
     /// Installs the recognition task callback for the given request.
@@ -256,6 +264,7 @@ final class STTService {
     /// by chaining a new request when `shouldKeepListening` is still true.
     private func installRecognitionTask(for request: SFSpeechAudioBufferRecognitionRequest) {
         guard let recognizer else { return }
+        let currentGeneration = self.taskGeneration
 
         // Snapshot the accumulated transcript so the @Sendable callback can build on it.
         // Uses a Sendable box because the recognition callback is @Sendable. The Speech
@@ -281,6 +290,7 @@ final class STTService {
                 let isFinal = result.isFinal
 
                 Task { @MainActor in
+                    guard self.taskGeneration == currentGeneration else { return }
                     self.accumulatedTranscript = fullTranscript
                     self.partialTranscript = fullTranscript
                     self.continuation?.yield(fullTranscript)
@@ -314,6 +324,10 @@ final class STTService {
                 }
 
                 Task { @MainActor in
+                    guard self.taskGeneration == currentGeneration else {
+                        // Stale error from cancelled task — ignore
+                        return
+                    }
                     if isTimeoutError && self.shouldKeepListening {
                         // Timeout while still recording — chain seamlessly
                         self.accumulatedTranscript = currentFull

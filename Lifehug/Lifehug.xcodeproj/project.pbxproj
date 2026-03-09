@@ -12,6 +12,7 @@
 		1436E589C929D07F208CBE0D /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8E6D09AB13C9D9FC0B410D /* STTService.swift */; };
 		1446B259D1F62EF1D493C3C1 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = A7249E098BFE636081036CA1 /* MLXUtilsLibrary */; };
 		15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */ = {isa = PBXBuildFile; fileRef = E1483A254576AD113904B103 /* question-bank.md */; };
+		A1B2C3D4E5F60718192A3B4C /* voices.npz in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081920A1B2C3D4E5F6 /* voices.npz */; };
 		15AF6B1EBF82886EB2E065C6 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43895F80B5CF97DB267E7E7E /* ModelConfig.swift */; };
 		1F5491890ABC0F0937A4DAEF /* VoicePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC9FBF03F19F2F8942ACD58E /* VoicePipeline.swift */; };
 		2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */; };
@@ -97,6 +98,7 @@
 		DC9A23229C292C066857E79D /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		DC9FBF03F19F2F8942ACD58E /* VoicePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePipeline.swift; sourceTree = "<group>"; };
 		DE30891D1823713F4F65B0D8 /* AnswersBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswersBrowserView.swift; sourceTree = "<group>"; };
+		D5E6F7081920A1B2C3D4E5F6 /* voices.npz */ = {isa = PBXFileReference; lastKnownFileType = file; path = "voices.npz"; sourceTree = "<group>"; };
 		E1483A254576AD113904B103 /* question-bank.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "question-bank.md"; sourceTree = "<group>"; };
 		E4992E371C506722A42A9E60 /* MisakiSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MisakiSwift; path = LocalPackages/MisakiSwift; sourceTree = SOURCE_ROOT; };
 		EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 			children = (
 				EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */,
 				E1483A254576AD113904B103 /* question-bank.md */,
+				D5E6F7081920A1B2C3D4E5F6 /* voices.npz */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -340,6 +343,7 @@
 				D10E751FFEA6C7E648C077BD /* Assets.xcassets in Resources */,
 				2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */,
 				15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */,
+				A1B2C3D4E5F60718192A3B4C /* voices.npz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -566,7 +570,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -588,7 +592,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;

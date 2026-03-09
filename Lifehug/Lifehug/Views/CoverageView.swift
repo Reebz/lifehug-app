@@ -37,6 +37,7 @@ struct CoverageView: View {
             .task {
                 loadData()
             }
+            .modifier(LifehugBarStyle())
         }
     }
 
@@ -240,6 +241,7 @@ private struct CategoryDetailSheet: View {
                         .foregroundStyle(Theme.terracotta)
                 }
             }
+            .modifier(LifehugBarStyle())
         }
     }
 }

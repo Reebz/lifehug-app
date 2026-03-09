@@ -40,6 +40,7 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.cream.ignoresSafeArea())
             .navigationTitle("Settings")
+            .modifier(LifehugBarStyle())
             .task {
                 loadSettings()
                 computeStorageSizes()
@@ -176,7 +177,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Natural Voice")
                         .foregroundStyle(Theme.warmCharcoal)
-                    Text("On-device neural TTS (~175 MB download)")
+                    Text("On-device neural TTS (~160 MB download)")
                         .font(.caption)
                         .foregroundStyle(Theme.walnut)
                 }
@@ -204,6 +205,18 @@ struct SettingsView: View {
                         .tint(Theme.terracotta)
                 }
                 .listRowBackground(Color.white)
+
+                Button(role: .destructive) {
+                    kokoroManager.cancelDownload()
+                    kokoroEnabled = false
+                } label: {
+                    HStack {
+                        Image(systemName: "xmark.circle")
+                        Text("Cancel Download")
+                    }
+                    .foregroundStyle(Theme.mutedRose)
+                }
+                .listRowBackground(Color.white)
             }
 
             if kokoroManager.phase == .loading {
@@ -227,6 +240,33 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.warmCharcoal)
                 .onChange(of: selectedVoice) { _, newVoice in
                     KokoroManager.selectedVoice = newVoice
+                }
+                .listRowBackground(Color.white)
+            }
+
+            if kokoroManager.phase == .failed {
+                Button {
+                    kokoroManager.downloadModel()
+                    kokoroEnabled = true
+                    KokoroManager.isEnabled = true
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry Download")
+                    }
+                    .foregroundStyle(Theme.terracotta)
+                }
+                .listRowBackground(Color.white)
+
+                Button(role: .destructive) {
+                    kokoroManager.deleteModel()
+                    kokoroEnabled = false
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete Partial Files")
+                    }
+                    .foregroundStyle(Theme.mutedRose)
                 }
                 .listRowBackground(Color.white)
             }
@@ -290,15 +330,15 @@ struct SettingsView: View {
                     Text("Silence Timeout")
                         .foregroundStyle(Theme.warmCharcoal)
                     Spacer()
-                    Text("\(silenceTimeout, specifier: "%.1f")s")
+                    Text(silenceTimeout == 0 ? "Off" : "\(silenceTimeout, specifier: "%.1f")s")
                         .foregroundStyle(Theme.walnut)
                 }
-                Slider(value: $silenceTimeout, in: 1.0...10.0, step: 0.5)
+                Slider(value: $silenceTimeout, in: 0...15.0, step: 0.5)
                     .tint(Theme.terracotta)
                     .onChange(of: silenceTimeout) { _, newValue in
                         StorageService.silenceTimeout = newValue
                     }
-                Text("Auto-stop listening after this many seconds of silence")
+                Text("Auto-stop listening after silence. Slide to zero to disable.")
                     .font(.caption)
                     .foregroundStyle(Theme.walnut)
             }
