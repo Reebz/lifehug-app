@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ConversationView: View {
     @Environment(SessionState.self) private var session
@@ -114,6 +115,16 @@ struct ConversationView: View {
                         questionHeader(question)
                     }
 
+                    // Empty state (Issue 21)
+                    if session.conversationTurns.isEmpty && !isThinking {
+                        Text("Share what comes to mind — speak or type below.")
+                            .font(Theme.bodySerifFont)
+                            .foregroundStyle(Theme.softGray)
+                            .multilineTextAlignment(.center)
+                            .padding(32)
+                            .frame(maxWidth: .infinity)
+                    }
+
                     ForEach(session.conversationTurns) { turn in
                         chatBubble(for: turn)
                             .id(turn.id)
@@ -179,7 +190,7 @@ struct ConversationView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(bubbleBackground(for: turn.role))
-                .frame(maxWidth: 280, alignment: turn.role == .user ? .trailing : .leading)
+                .frame(maxWidth: UIScreen.main.bounds.width * 0.72, alignment: turn.role == .user ? .trailing : .leading)
 
             if turn.role == .assistant { Spacer(minLength: 48) }
         }
@@ -370,44 +381,38 @@ struct ConversationView: View {
         if !voiceMode {
             voiceMode = true
 
-            voiceModeTask = Task {
-                // Ensure model is loaded before building the pipeline
-                if !llmService.isLoaded {
-                    isThinking = true
-                    try? await llmService.loadModel()
-                    isThinking = false
-                }
+            // Create pipeline and start mic IMMEDIATELY (Issue 16)
+            let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
+            p.autoReopenMic = true
+            p.wireAudioObservers()
 
-                guard !Task.isCancelled else { return }
+            p.onTranscriptFinalized = { text in
+                session.addTurn(role: .user, text: text)
+            }
+            p.onResponseGenerated = { text in
+                session.addTurn(role: .assistant, text: text)
+            }
+            p.onTerminationDetected = {
+                Task { await endSession() }
+            }
 
-                // Create pipeline and wire callbacks
-                let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
-                p.autoReopenMic = true
-                p.wireAudioObservers()
+            // Start LLM session if needed
+            if !hasStartedLLMSession {
+                let userName = (try? storageService.readConfig().name) ?? "friend"
+                let prompt = LLMService.memoirInterviewerPrompt(
+                    userName: userName,
+                    questionText: session.currentQuestion?.text ?? ""
+                )
+                llmService.startNewSession(systemPrompt: prompt)
+                hasStartedLLMSession = true
+            }
 
-                p.onTranscriptFinalized = { text in
-                    session.addTurn(role: .user, text: text)
-                }
-                p.onResponseGenerated = { text in
-                    session.addTurn(role: .assistant, text: text)
-                }
-                p.onTerminationDetected = {
-                    Task { await endSession() }
-                }
+            pipeline = p
+            p.startListening()  // Start mic NOW
 
-                // Start LLM session if needed
-                if !hasStartedLLMSession {
-                    let userName = (try? storageService.readConfig().name) ?? "friend"
-                    let prompt = LLMService.memoirInterviewerPrompt(
-                        userName: userName,
-                        questionText: session.currentQuestion?.text ?? ""
-                    )
-                    llmService.startNewSession(systemPrompt: prompt)
-                    hasStartedLLMSession = true
-                }
-
-                pipeline = p
-                p.startListening()
+            // Load model in background without blocking
+            if !llmService.isLoaded {
+                voiceModeTask = Task { try? await llmService.loadModel() }
             }
         } else {
             voiceModeTask?.cancel()
@@ -507,6 +512,9 @@ struct ConversationView: View {
                 }
             }
 
+            // Haptic on save success (Issue 17)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+
             // 7. Show confirmation
             withAnimation(.easeOut(duration: 0.3)) {
                 showSavedConfirmation = true
@@ -525,9 +533,6 @@ struct ConversationView: View {
 
         } catch {
             saveError = "Failed to save: \(error.localizedDescription)"
-            withAnimation(.easeOut(duration: 0.3)) {
-                showSavedConfirmation = true
-            }
             isSaving = false
         }
     }

@@ -44,13 +44,35 @@ struct DailyQuestionView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     micButton
+
+                    Text(micStateLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.walnut)
 
                     if showTypeInput {
                         typeInputArea
-                    } else {
+                    } else if !voiceSessionActive {
                         typeInsteadButton
+                    }
+
+                    // View Conversation button (Issue 2)
+                    if !session.conversationTurns.isEmpty && !voiceSessionActive {
+                        Button {
+                            navigateToConversation = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "bubble.left.and.text.bubble.right")
+                                    .font(.system(size: 14, weight: .medium))
+                                Text("View Conversation")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .foregroundStyle(Theme.terracotta)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.bottom, 8)
@@ -77,6 +99,21 @@ struct DailyQuestionView: View {
             Spacer()
 
             questionContent
+                .id(session.currentQuestion?.id)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.4), value: session.currentQuestion?.id)
+
+            // Skip question (Issue 13)
+            if !voiceSessionActive && session.conversationTurns.isEmpty && session.currentQuestion != nil {
+                Button {
+                    skipCurrentQuestion()
+                } label: {
+                    Text("Skip this question")
+                        .font(.caption)
+                        .foregroundStyle(Theme.softGray)
+                }
+                .accessibilityLabel("Skip this question and load a different one")
+            }
 
             transcriptArea
 
@@ -178,19 +215,56 @@ struct DailyQuestionView: View {
                 }
             }
 
+            // LLM loading indicator (Issue 5)
+            if voiceSessionActive && !llmService.isLoaded {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).tint(Theme.terracotta)
+                    Text("Preparing AI responses...")
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
+                .padding(.horizontal, 16)
+                .transition(.opacity)
+            }
+
+            // Error toast (Issue 4)
+            if let errorMsg = pipeline?.error {
+                Text(errorMsg)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.mutedRose))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        Task {
+                            try? await Task.sleep(for: .seconds(3))
+                            pipeline?.error = nil
+                        }
+                    }
+            }
+
             // Done & Save button
             Button {
                 Task { await endVoiceSessionAndSave() }
             } label: {
-                Text("Done & Save")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 12)
-                    .background(
-                        Capsule()
-                            .fill(Theme.terracotta)
-                    )
+                Group {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Text("Done & Save")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule()
+                        .fill(isSaving ? Theme.terracotta.opacity(0.6) : Theme.terracotta)
+                )
             }
             .disabled(session.conversationTurns.isEmpty || isSaving)
         }
@@ -252,17 +326,29 @@ struct DailyQuestionView: View {
 
     private var micButtonColor: Color {
         guard voiceSessionActive, let pipeline else {
-            return Theme.terracotta
+            return Theme.terracotta  // Idle/not started — warm default
         }
         switch pipeline.state {
         case .listening:
-            return Theme.mutedRose
-        case .speaking:
-            return Theme.sageGreen
+            return Theme.recordingRed   // Solid RED — actively recording
         case .processing:
-            return Theme.amber
+            return Theme.amber          // ORANGE — thinking
+        case .speaking:
+            return Theme.speakingGreen  // Solid GREEN — AI speaking
         case .idle:
-            return Theme.terracotta
+            return Theme.amber          // ORANGE — paused/waiting
+        }
+    }
+
+    private var micStateLabel: String {
+        guard voiceSessionActive, let pipeline else {
+            return "Tap to start"
+        }
+        switch pipeline.state {
+        case .listening: return "Recording..."
+        case .processing: return "Thinking..."
+        case .speaking: return "AI speaking"
+        case .idle: return "Tap to resume"
         }
     }
 
@@ -273,7 +359,7 @@ struct DailyQuestionView: View {
         if voiceSessionActive, let pipeline {
             switch pipeline.state {
             case .listening:
-                Image(systemName: "mic.fill")
+                Image(systemName: "waveform")
                     .font(.system(size: micIconSize, weight: .medium))
                     .foregroundStyle(.white)
             case .processing:
@@ -285,7 +371,7 @@ struct DailyQuestionView: View {
                     .font(.system(size: micIconSize, weight: .medium))
                     .foregroundStyle(.white)
             case .idle:
-                Image(systemName: "pause.fill")
+                Image(systemName: "mic.fill")
                     .font(.system(size: micIconSize, weight: .medium))
                     .foregroundStyle(.white)
             }
@@ -305,30 +391,20 @@ struct DailyQuestionView: View {
                 .frame(width: micDiameter, height: micDiameter)
                 .shadow(
                     color: micButtonColor.opacity(0.15),
-                    radius: (voiceSessionActive && pipeline?.state == .listening) ? 16 : 8,
+                    radius: 8,
                     y: 4
-                )
-                .scaleEffect((voiceSessionActive && pipeline?.state == .listening) ? 1.08 : 1.0)
-                .animation(
-                    (voiceSessionActive && pipeline?.state == .listening)
-                        ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.2),
-                    value: pipeline?.state
                 )
 
             micButtonIcon
         }
+        .animation(.none, value: pipeline?.state)
         .contentShape(Circle())
-        .onTapGesture(count: 2) {
-            triggerHaptic()
-            endVoiceSessionAndNavigate()
-        }
-        .onTapGesture(count: 1) {
+        .onTapGesture {
             triggerHaptic()
             handleSingleTap()
         }
         .disabled(session.currentQuestion == nil)
-        .accessibilityLabel(voiceSessionActive ? "Voice session active" : "Start voice session")
+        .accessibilityLabel(micStateLabel)
     }
 
     // MARK: - Transcript Area
@@ -382,6 +458,7 @@ struct DailyQuestionView: View {
         }
         .buttonStyle(.plain)
         .disabled(session.currentQuestion == nil)
+        .accessibilityLabel("Type your answer instead of speaking")
     }
 
     private var typeInputArea: some View {
@@ -429,6 +506,7 @@ struct DailyQuestionView: View {
     private var savedOverlay: some View {
         ZStack {
             Color.black.opacity(0.3).ignoresSafeArea()
+                .onTapGesture { dismissSavedOverlay() }
             VStack(spacing: 16) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 48))
@@ -437,6 +515,9 @@ struct DailyQuestionView: View {
                     .font(Theme.title3Font)
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.warmCharcoal)
+                Text("Tap to dismiss")
+                    .font(.caption)
+                    .foregroundStyle(Theme.softGray)
             }
             .padding(32)
             .background(
@@ -444,8 +525,15 @@ struct DailyQuestionView: View {
                     .fill(.white)
                     .shadow(color: .black.opacity(0.1), radius: 20, y: 8)
             )
+            .onTapGesture { dismissSavedOverlay() }
         }
         .transition(.opacity)
+    }
+
+    private func dismissSavedOverlay() {
+        withAnimation(.easeOut(duration: 0.3)) {
+            showSavedConfirmation = false
+        }
     }
 
     // MARK: - Haptic Feedback
@@ -584,6 +672,9 @@ struct DailyQuestionView: View {
                 }
             }
 
+            // Haptic on save success (Issue 17)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+
             // Show saved confirmation
             withAnimation(.easeOut(duration: 0.3)) {
                 showSavedConfirmation = true
@@ -661,6 +752,19 @@ struct DailyQuestionView: View {
             session.currentQuestion = next
         } else {
             loadError = "All questions answered! Check the coverage map."
+        }
+    }
+
+    private func skipCurrentQuestion() {
+        if let next = RotationEngine.pickNextQuestion(
+            questions: questions,
+            categories: categories,
+            rotation: rotationState,
+            excluding: session.currentQuestion?.id
+        ) {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                session.currentQuestion = next
+            }
         }
     }
 

@@ -97,9 +97,11 @@ struct AnswersBrowserView: View {
                         .foregroundStyle(Theme.warmCharcoal)
                 }
                 .listRowBackground(Theme.cream)
+                .listRowSeparatorTint(Theme.warmGray.opacity(0.15))
             }
         }
         .scrollContentBackground(.hidden)
+        .refreshable { loadAnswers() }
     }
 
     private func answerRow(_ answer: Answer) -> some View {
@@ -156,7 +158,14 @@ struct AnswersBrowserView: View {
                         .foregroundStyle(Theme.walnut)
                 }
                 .padding(.top, 8)
-                .padding(.bottom, 20)
+                .padding(.bottom, 12)
+
+                // Warm divider (Issue 22)
+                Rectangle()
+                    .fill(Theme.terracotta.opacity(0.3))
+                    .frame(height: 1)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 12)
 
                 // Chapter list
                 VStack(spacing: 12) {
@@ -270,11 +279,15 @@ struct AnswersBrowserView: View {
         Dictionary(grouping: answers, by: \.categoryLetter)
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
     private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        Self.dateFormatter.string(from: date)
     }
 }
 
@@ -596,7 +609,7 @@ struct AnswerDetailView: View {
                         .foregroundStyle(Theme.warmCharcoal)
                 } else {
                     Text(displayText)
-                        .font(.body)
+                        .font(Theme.bodySerifFont)
                         .foregroundStyle(Theme.warmCharcoal)
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -687,11 +700,15 @@ struct AnswerDetailView: View {
         }
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
     private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        Self.dateFormatter.string(from: date)
     }
 }
 

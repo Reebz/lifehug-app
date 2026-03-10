@@ -37,6 +37,8 @@ final class KokoroManager {
     nonisolated(unsafe) private var voices: [String: MLXArray] = [:]
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
+    /// Retains the current audio buffer until playback completes (prevents use-after-free).
+    private var currentBuffer: AVAudioPCMBuffer?
     private var downloadTask: Task<Void, Never>?
 
     // MARK: - File Locations
@@ -171,6 +173,7 @@ final class KokoroManager {
     func unloadEngine() {
         playerNode?.stop()
         audioEngine?.stop()
+        currentBuffer = nil
         audioEngine = nil
         playerNode = nil
         ttsEngine = nil
@@ -209,7 +212,7 @@ final class KokoroManager {
         let language: Language = Self.selectedVoice.hasPrefix("b") ? .enGB : .enUS
 
         let (audio, _) = try await Task.detached {
-            try engine.generateAudio(voice: voiceEmbedding, language: language, text: text)
+            try engine.generateAudio(voice: voiceEmbedding, language: language, text: text, speed: 1.1)
         }.value
 
         await playAudio(audio)
@@ -228,7 +231,11 @@ final class KokoroManager {
         let player = AVAudioPlayerNode()
         engine.attach(player)
 
-        let format = AVAudioFormat(standardFormatWithSampleRate: Double(KokoroTTS.Constants.samplingRate), channels: 1)!
+        let sampleRate = Double(KokoroTTS.Constants.samplingRate)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            logger.error("Failed to create audio format for sample rate \(sampleRate)")
+            return
+        }
         engine.connect(player, to: engine.mainMixerNode, format: format)
 
         do {
@@ -245,7 +252,10 @@ final class KokoroManager {
         guard let engine = audioEngine, let player = playerNode else { return }
 
         let sampleRate = Double(KokoroTTS.Constants.samplingRate)
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            logger.error("Failed to create audio format")
+            return
+        }
 
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
             logger.error("Failed to create audio buffer")
@@ -253,17 +263,24 @@ final class KokoroManager {
         }
 
         buffer.frameLength = buffer.frameCapacity
-        let dst = buffer.floatChannelData![0]
+        guard let channelData = buffer.floatChannelData?[0] else {
+            logger.error("Failed to get float channel data from buffer")
+            return
+        }
         samples.withUnsafeBufferPointer { src in
             guard let baseAddress = src.baseAddress else { return }
-            dst.initialize(from: baseAddress, count: samples.count)
+            channelData.initialize(from: baseAddress, count: samples.count)
         }
+
+        // Retain buffer until playback completes
+        currentBuffer = buffer
 
         if !engine.isRunning {
             do {
                 try engine.start()
             } catch {
                 logger.error("Audio engine start failed: \(error)")
+                currentBuffer = nil
                 return
             }
         }
@@ -281,6 +298,8 @@ final class KokoroManager {
             }
             player.play()
         }
+
+        currentBuffer = nil
     }
 
     // MARK: - Legacy Cleanup

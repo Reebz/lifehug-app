@@ -3,6 +3,7 @@ import SwiftUI
 struct CoverageView: View {
     @Binding var selectedTab: Int
     @Environment(AppState.self) private var appState
+    @Environment(SessionState.self) private var sessionState
 
     @State private var categories: [Character: Category] = [:]
     @State private var questions: [Question] = []
@@ -23,13 +24,18 @@ struct CoverageView: View {
                 .padding()
             }
             .background(Theme.cream.ignoresSafeArea())
+            .refreshable { loadData() }
             .navigationTitle("Coverage")
             .sheet(item: categoryBinding) { wrapper in
                 CategoryDetailSheet(
                     category: wrapper.category,
                     questions: questions.filter { $0.category == wrapper.id },
                     categoryColor: colorForCategory(wrapper.id),
-                    onAnswer: { _ in
+                    onAnswer: { question in
+                        // Only set question if no in-progress session (Issue 14)
+                        if sessionState.conversationTurns.isEmpty {
+                            sessionState.currentQuestion = question
+                        }
                         selectedTab = 0
                     }
                 )

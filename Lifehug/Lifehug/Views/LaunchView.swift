@@ -160,10 +160,13 @@ struct LaunchView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 44))
                 .foregroundStyle(Theme.terracotta)
+                .scaleEffect(1.0)
+                .animation(.easeOut(duration: 0.4), value: true)
 
-            Text("Ready")
-                .font(Theme.headlineFont)
+            Text("Lifehug")
+                .font(Theme.displayFont)
                 .foregroundStyle(Theme.walnut)
+                .transition(.opacity)
         }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

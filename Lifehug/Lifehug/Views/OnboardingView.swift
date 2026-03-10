@@ -27,6 +27,17 @@ struct OnboardingView: View {
             Theme.cream.ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // Progress dots (Issue 8)
+                HStack(spacing: 8) {
+                    ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.offset) { _, s in
+                        Circle()
+                            .fill(s == step ? Theme.terracotta : Theme.warmGray.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                            .animation(.easeOut(duration: 0.3), value: step)
+                    }
+                }
+                .padding(.top, 16)
+
                 Spacer()
 
                 Group {
@@ -53,6 +64,22 @@ struct OnboardingView: View {
                         .foregroundStyle(Theme.mutedRose)
                         .padding(.horizontal, Theme.horizontalPadding + 8)
                         .padding(.bottom, 8)
+                }
+
+                // Back button (Issue 7)
+                if step != .welcome {
+                    Button {
+                        handleBack()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.walnut)
+                    }
+                    .padding(.bottom, 8)
+                    .padding(.horizontal, Theme.horizontalPadding + 8)
                 }
 
                 continueButton
@@ -229,6 +256,16 @@ struct OnboardingView: View {
     }
 
     // MARK: - Navigation
+
+    private func handleBack() {
+        switch step {
+        case .welcome: break
+        case .name: step = .welcome
+        case .projectType: step = .name
+        case .importantPeople: step = .projectType
+        case .completion: step = .importantPeople
+        }
+    }
 
     private func handleContinue() {
         errorMessage = nil

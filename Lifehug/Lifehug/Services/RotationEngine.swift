@@ -16,9 +16,10 @@ struct RotationEngine {
     static func pickNextQuestion(
         questions: [Question],
         categories: [Character: Category],
-        rotation: RotationState
+        rotation: RotationState,
+        excluding: String? = nil
     ) -> Question? {
-        let pending = questions.filter { !$0.answered }
+        let pending = questions.filter { !$0.answered && $0.id != excluding }
         guard !pending.isEmpty else { return nil }
 
         let spotlightFreq = rotation.spotlightFrequency

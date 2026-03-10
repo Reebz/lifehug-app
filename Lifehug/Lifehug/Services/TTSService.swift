@@ -63,7 +63,7 @@ final class TTSService {
 
         let utterance = AVSpeechUtterance(string: sentence)
         utterance.voice = Self.bestAvailableVoice()
-        utterance.rate = 0.48
+        utterance.rate = 0.53
         utterance.pitchMultiplier = 1.0
         utterance.postUtteranceDelay = 0.15
 

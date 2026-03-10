@@ -85,7 +85,7 @@ struct ContentView: View {
                 OnboardingView()
             default:
                 TabView(selection: $selectedTab) {
-                    Tab("Today", systemImage: "sun.max.fill", value: 0) {
+                    Tab("Today", systemImage: "quote.bubble.fill", value: 0) {
                         DailyQuestionView()
                     }
 

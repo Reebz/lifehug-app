@@ -336,24 +336,20 @@ struct SettingsView: View {
 
     // MARK: - Voice Section
 
+    private static let timeoutOptions: [(String, Double)] = [
+        ("Off", 0), ("3s", 3), ("5s", 5), ("10s", 10), ("15s", 15)
+    ]
+
     private var voiceSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Silence Timeout")
-                        .foregroundStyle(Theme.warmCharcoal)
-                    Spacer()
-                    Text(silenceTimeout == 0 ? "Off" : "\(silenceTimeout, specifier: "%.1f")s")
-                        .foregroundStyle(Theme.walnut)
+            Picker("Silence Timeout", selection: $silenceTimeout) {
+                ForEach(Self.timeoutOptions, id: \.1) { label, value in
+                    Text(label).tag(value)
                 }
-                Slider(value: $silenceTimeout, in: 0...15.0, step: 0.5)
-                    .tint(Theme.terracotta)
-                    .onChange(of: silenceTimeout) { _, newValue in
-                        StorageService.silenceTimeout = newValue
-                    }
-                Text("Auto-stop listening after silence. Slide to zero to disable.")
-                    .font(.caption)
-                    .foregroundStyle(Theme.walnut)
+            }
+            .foregroundStyle(Theme.warmCharcoal)
+            .onChange(of: silenceTimeout) { _, newValue in
+                StorageService.silenceTimeout = newValue
             }
             .listRowBackground(Color.white)
         } header: {
