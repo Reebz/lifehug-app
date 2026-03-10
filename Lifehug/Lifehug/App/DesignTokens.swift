@@ -20,7 +20,7 @@ enum Theme {
     // MARK: - Typography (Dynamic Type)
 
     static let displayFont: Font = .system(.largeTitle, design: .serif).weight(.light)
-    static let titleFont: Font = .system(.title, design: .serif)
+    static let titleFont: Font = .system(size: 28, weight: .regular, design: .serif)
     static let title2Font: Font = .system(.title2, design: .serif)
     static let title3Font: Font = .system(.title3, design: .serif)
     static let headlineFont: Font = .system(.headline, design: .serif)

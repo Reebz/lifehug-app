@@ -233,7 +233,7 @@ struct SettingsView: View {
 
             if kokoroManager.isReady {
                 Picker("Voice", selection: $selectedVoice) {
-                    ForEach(kokoroManager.availableVoices, id: \.self) { voice in
+                    ForEach(curatedVoices, id: \.self) { voice in
                         Text(voiceDisplayName(voice)).tag(voice)
                     }
                 }
@@ -300,6 +300,19 @@ struct SettingsView: View {
                 .font(Theme.subheadlineSerifFont)
                 .foregroundStyle(Theme.warmCharcoal)
         }
+    }
+
+    /// Curated subset: 3 female + 3 male voices for simplicity
+    private static let preferredVoiceIDs: [String] = [
+        "af_heart", "af_nova", "af_sky",
+        "am_adam", "am_michael", "am_echo"
+    ]
+
+    private var curatedVoices: [String] {
+        let available = kokoroManager.availableVoices
+        let curated = Self.preferredVoiceIDs.filter { available.contains($0) }
+        // If none of the preferred voices exist, fall back to first 6
+        return curated.isEmpty ? Array(available.prefix(6)) : curated
     }
 
     private func voiceDisplayName(_ voiceID: String) -> String {

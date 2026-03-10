@@ -267,7 +267,7 @@ final class VoicePipeline {
 
                 // Auto-reopen mic for conversation loop
                 if self.autoReopenMic {
-                    try? await Task.sleep(for: .milliseconds(300))
+                    try? await Task.sleep(for: .milliseconds(100))
                     guard !Task.isCancelled, self.autoReopenMic else { return }
                     self.startListening()
                 }

@@ -54,11 +54,6 @@ struct DailyQuestionView: View {
                     }
                 }
                 .padding(.bottom, 8)
-                .background(
-                    Theme.cream
-                        .shadow(color: .black.opacity(0.04), radius: 8, y: -4)
-                        .ignoresSafeArea(edges: .bottom)
-                )
             }
             .navigationDestination(isPresented: $navigateToConversation) {
                 ConversationView(
@@ -463,49 +458,47 @@ struct DailyQuestionView: View {
     // MARK: - Voice Session Management
 
     private func startVoiceSession() {
-        voiceSessionTask = Task {
-            // Ensure LLM model is loaded
-            if !llmService.isLoaded {
+        // Create pipeline and wire callbacks immediately (no async delay)
+        let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
+        pipe.autoReopenMic = true
+
+        pipe.onTranscriptFinalized = { text in
+            session.addTurn(role: .user, text: text)
+        }
+        pipe.onResponseGenerated = { text in
+            session.addTurn(role: .assistant, text: text)
+        }
+        pipe.onTerminationDetected = {
+            Task { await endVoiceSessionAndSave() }
+        }
+
+        pipe.wireAutoReopen()
+
+        // Start LLM session if needed
+        if !hasStartedLLMSession {
+            let userName = (try? storageService.readConfig().name) ?? "friend"
+            let prompt = LLMService.memoirInterviewerPrompt(
+                userName: userName,
+                questionText: session.currentQuestion?.text ?? ""
+            )
+            llmService.startNewSession(systemPrompt: prompt)
+            hasStartedLLMSession = true
+        }
+
+        pipeline = pipe
+
+        withAnimation(.easeOut(duration: 0.3)) {
+            voiceSessionActive = true
+        }
+
+        // Start listening immediately — LLM loads in background if needed
+        pipe.startListening()
+
+        // Load LLM model in background (won't block mic)
+        if !llmService.isLoaded {
+            voiceSessionTask = Task {
                 try? await llmService.loadModel()
             }
-
-            guard !Task.isCancelled else { return }
-
-            // Create pipeline and wire callbacks
-            let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
-            pipe.autoReopenMic = true
-
-            pipe.onTranscriptFinalized = { text in
-                session.addTurn(role: .user, text: text)
-            }
-            pipe.onResponseGenerated = { text in
-                session.addTurn(role: .assistant, text: text)
-            }
-            pipe.onTerminationDetected = {
-                Task { await endVoiceSessionAndSave() }
-            }
-
-            // Wire auto-reopen (added by parallel agent)
-            pipe.wireAutoReopen()
-
-            // Start LLM session if needed
-            if !hasStartedLLMSession {
-                let userName = (try? storageService.readConfig().name) ?? "friend"
-                let prompt = LLMService.memoirInterviewerPrompt(
-                    userName: userName,
-                    questionText: session.currentQuestion?.text ?? ""
-                )
-                llmService.startNewSession(systemPrompt: prompt)
-                hasStartedLLMSession = true
-            }
-
-            pipeline = pipe
-
-            withAnimation(.easeOut(duration: 0.3)) {
-                voiceSessionActive = true
-            }
-
-            pipe.startListening()
         }
     }
 
