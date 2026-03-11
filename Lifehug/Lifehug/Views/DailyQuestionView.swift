@@ -397,7 +397,7 @@ struct DailyQuestionView: View {
 
             micButtonIcon
         }
-        .animation(.none, value: pipeline?.state)
+        .transaction { $0.animation = nil }
         .contentShape(Circle())
         .onTapGesture {
             triggerHaptic()
