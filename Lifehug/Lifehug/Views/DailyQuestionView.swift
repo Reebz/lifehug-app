@@ -564,7 +564,7 @@ struct DailyQuestionView: View {
 
         // Start LLM session if needed
         if !hasStartedLLMSession {
-            let userName = (try? storageService.readConfig().name) ?? "friend"
+            let userName = storageService.readConfig().name
             let prompt = LLMService.memoirInterviewerPrompt(
                 userName: userName,
                 questionText: session.currentQuestion?.text ?? ""
@@ -731,7 +731,7 @@ struct DailyQuestionView: View {
             questionBankMarkdown = try storageService.readQuestionBank()
             categories = QuestionBankParser.parseCategories(from: questionBankMarkdown)
             questions = QuestionBankParser.parseQuestions(from: questionBankMarkdown)
-            rotationState = try storageService.readRotationState()
+            rotationState = storageService.readRotationState()
 
             pickTodayQuestion()
         } catch {

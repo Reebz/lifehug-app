@@ -29,6 +29,14 @@ final class SessionState {
         return userTurns.map(\.text).joined(separator: "\n\n")
     }
 
+    /// Flush any pending auto-save immediately (no debounce).
+    /// Call when the app is about to enter background.
+    func flushAutoSave() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        autoSave()
+    }
+
     /// Reset session state for a new question.
     func resetSession() {
         autoSaveTask?.cancel()

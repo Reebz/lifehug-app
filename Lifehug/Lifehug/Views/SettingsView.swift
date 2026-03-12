@@ -492,17 +492,13 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func loadSettings() {
-        do {
-            let config = try storage.readConfig()
-            userName = config.name
-        } catch {
-            userName = "friend"
-        }
+        let config = storage.readConfig()
+        userName = config.name
     }
 
     private func saveName() {
         do {
-            var config = try storage.readConfig()
+            var config = storage.readConfig()
             config.name = userName
             try storage.writeConfig(config)
         } catch {

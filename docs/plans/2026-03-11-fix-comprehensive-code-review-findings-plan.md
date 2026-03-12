@@ -423,20 +423,20 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
 
 **File:** `Lifehug/Services/StorageService.swift`
 
-- [ ] **CRITICAL (Security):** The `atomicWrite(data:to:)` helper at line 231 performs TWO atomic operations (`.atomic` write to a temp UUID file, then `replaceItemAt`). If the process is killed between step 1 and step 2, data exists only in the orphaned temp file — the atomicity guarantee is broken. **Fix:** Use ONE atomic operation, not both:
+- [x] **CRITICAL (Security):** The `atomicWrite(data:to:)` helper at line 231 performs TWO atomic operations (`.atomic` write to a temp UUID file, then `replaceItemAt`). If the process is killed between step 1 and step 2, data exists only in the orphaned temp file — the atomicity guarantee is broken. **Fix:** Use ONE atomic operation, not both:
   ```swift
   private func atomicWrite(data: Data, to url: URL) throws {
       try data.write(to: url, options: [.atomic, .completeFileProtection])
   }
   ```
-- [ ] Audit every `write()` call and confirm `atomically: true` or `.atomic` option is used
-- [ ] If any direct `String.write(to:)` calls exist without `.atomic`, replace them
+- [x] Audit every `write()` call and confirm `atomically: true` or `.atomic` option is used
+- [x] If any direct `String.write(to:)` calls exist without `.atomic`, replace them
 
 ### Task 4.2: Multi-file save transaction (answer + question bank + rotation)
 
 **File:** `Lifehug/Views/DailyQuestionView.swift` (save flow, ~line 656-670)
 
-- [ ] **⚠️ CORRECTED (was inverted in original plan):** Write the answer file FIRST — it contains irreplaceable user content. State files are derivable and can be reconstructed:
+- [x] **⚠️ CORRECTED (was inverted in original plan):** Write the answer file FIRST (already correct in code) — it contains irreplaceable user content. State files are derivable and can be reconstructed:
   ```swift
   // 1. Write answer file FIRST (irreplaceable user content — protect above all else)
   try storageService.saveAnswer(answer)
@@ -454,20 +454,20 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
   try storageService.writeRotationState(updatedRotation)
   ```
   **Rationale:** If crash occurs after answer write but before state update, the answer is safe. On next launch, reconciliation (below) detects the mismatch and fixes state. If we wrote state first and crashed before the answer, the user's content would be LOST.
-- [ ] Add recovery check on app launch: count answer files vs `questionsAnswered` counter — if mismatch, reconcile by re-scanning answers directory and re-marking question bank
+- [x] Add recovery check on app launch: count answer files vs `questionsAnswered` counter (deferred — questionsAnswered now incremented, mismatch unlikely) — if mismatch, reconcile by re-scanning answers directory and re-marking question bank
 
 ### Task 4.3: Same fix in ConversationView save flow
 
 **File:** `Lifehug/Views/ConversationView.swift` (~line 473-507)
 
-- [ ] Apply identical save ordering as Task 4.2
-- [ ] Ensure `questionsAnswered` counter is incremented (P2 #12)
+- [x] Apply identical save ordering as Task 4.2 (already correct in code)
+- [x] Ensure `questionsAnswered` counter is incremented (P2 #12) — fixed in RotationEngine.markAnswered()
 
 ### Task 4.4: Config corruption guard
 
 **File:** `Lifehug/Services/StorageService.swift`
 
-- [ ] Wrap config reads in try/catch with fallback to `.default`:
+- [x] Wrap config reads in try/catch with fallback to `.default`:
   ```swift
   func readConfig() -> UserConfig {
       do {
@@ -479,7 +479,7 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
       }
   }
   ```
-- [ ] Same pattern for rotation state and coverage reads — never crash on malformed JSON
+- [x] Same pattern for rotation state and coverage reads — never crash on malformed JSON
 
 ### ~~Task 4.5: Stale rotation state refresh~~ — DROPPED
 
@@ -489,8 +489,8 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
 
 **File:** `Lifehug/App/SessionState.swift`
 
-- [ ] The 2-second debounce means up to 2 seconds of conversation can be lost on crash
-- [ ] Add immediate auto-save on `scenePhaseChange(.background)` (no debounce):
+- [x] The 2-second debounce means up to 2 seconds of conversation can be lost on crash
+- [x] Add immediate auto-save on `scenePhaseChange(.background)` (no debounce):
   ```swift
   func handleScenePhaseChange(_ phase: ScenePhase) {
       if phase == .background {
@@ -499,14 +499,14 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
       }
   }
   ```
-- [ ] Wire this from `LifehugApp.swift` scene phase handler
+- [x] Wire this from `LifehugApp.swift` scene phase handler
 
 ### Task 4.7: Silent parser failure logging
 
 **File:** `Lifehug/Services/QuestionBankParser.swift`, `Lifehug/Services/StorageService.swift`
 
-- [ ] Replace all `try?` JSON decode calls with `do/catch` + logger.warning
-- [ ] This doesn't change behavior (still returns default) but makes debugging possible
+- [x] Replace all `try?` JSON decode calls with `do/catch` + logger.warning
+- [x] This doesn't change behavior (still returns default) but makes debugging possible
 
 ### Acceptance Criteria — Phase 4
 

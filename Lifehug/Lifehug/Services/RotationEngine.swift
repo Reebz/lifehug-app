@@ -116,6 +116,7 @@ struct RotationEngine {
         updatedRotation.lastQuestionID = questionID
         updatedRotation.lastAskedAt = ISO8601DateFormatter().string(from: Date())
         updatedRotation.questionsAsked = rotation.questionsAsked + 1
+        updatedRotation.questionsAnswered = (rotation.questionsAnswered ?? 0) + 1
 
         return (updatedMarkdown, updatedRotation)
     }

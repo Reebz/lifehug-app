@@ -144,12 +144,17 @@ final class StorageService {
 
     // MARK: - Rotation State I/O
 
-    func readRotationState() throws -> RotationState {
+    func readRotationState() -> RotationState {
         guard fileManager.fileExists(atPath: rotationURL.path) else {
             return .default
         }
-        let data = try Data(contentsOf: rotationURL)
-        return try JSONDecoder().decode(RotationState.self, from: data)
+        do {
+            let data = try Data(contentsOf: rotationURL)
+            return try JSONDecoder().decode(RotationState.self, from: data)
+        } catch {
+            logger.warning("Rotation state read failed, using defaults: \(error)")
+            return .default
+        }
     }
 
     func writeRotationState(_ state: RotationState) throws {
@@ -161,12 +166,17 @@ final class StorageService {
 
     // MARK: - Config I/O
 
-    func readConfig() throws -> UserConfig {
+    func readConfig() -> UserConfig {
         guard fileManager.fileExists(atPath: configURL.path) else {
             return UserConfig()
         }
-        let data = try Data(contentsOf: configURL)
-        return try JSONDecoder().decode(UserConfig.self, from: data)
+        do {
+            let data = try Data(contentsOf: configURL)
+            return try JSONDecoder().decode(UserConfig.self, from: data)
+        } catch {
+            logger.warning("Config read failed, using defaults: \(error)")
+            return UserConfig()
+        }
     }
 
     func writeConfig(_ config: UserConfig) throws {
@@ -234,14 +244,7 @@ final class StorageService {
     }
 
     private func atomicWrite(data: Data, to url: URL) throws {
-        let tempURL = url.deletingLastPathComponent()
-            .appendingPathComponent(UUID().uuidString)
-        try data.write(to: tempURL, options: [.atomic, .completeFileProtection])
-        if fileManager.fileExists(atPath: url.path) {
-            _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
-        } else {
-            try fileManager.moveItem(at: tempURL, to: url)
-        }
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
     }
 }
 

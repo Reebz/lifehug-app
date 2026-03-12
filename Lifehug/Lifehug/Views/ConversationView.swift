@@ -84,7 +84,7 @@ struct ConversationView: View {
                 if voiceMode, let pipeline {
                     // Route through voice pipeline so response is spoken
                     if !hasStartedLLMSession {
-                        let userName = (try? storageService.readConfig().name) ?? "friend"
+                        let userName = storageService.readConfig().name
                         let prompt = LLMService.memoirInterviewerPrompt(
                             userName: userName,
                             questionText: session.currentQuestion?.text ?? ""
@@ -398,7 +398,7 @@ struct ConversationView: View {
 
             // Start LLM session if needed
             if !hasStartedLLMSession {
-                let userName = (try? storageService.readConfig().name) ?? "friend"
+                let userName = storageService.readConfig().name
                 let prompt = LLMService.memoirInterviewerPrompt(
                     userName: userName,
                     questionText: session.currentQuestion?.text ?? ""
@@ -445,7 +445,7 @@ struct ConversationView: View {
             }
 
             if !hasStartedLLMSession {
-                let userName = (try? storageService.readConfig().name) ?? "friend"
+                let userName = storageService.readConfig().name
                 let prompt = LLMService.memoirInterviewerPrompt(
                     userName: userName,
                     questionText: session.currentQuestion?.text ?? ""
