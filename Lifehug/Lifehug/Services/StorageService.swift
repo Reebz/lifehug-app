@@ -33,14 +33,19 @@ final class StorageService {
 
     /// Application Support — models and state (not visible in Files app)
     var appSupportDirectory: URL {
-        let url = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let url = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fatalError("Application Support directory unavailable — iOS sandbox is broken")
+        }
         try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     /// Documents — user content (visible in Files app)
     var documentsDirectory: URL {
-        fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let url = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            fatalError("Documents directory unavailable — iOS sandbox is broken")
+        }
+        return url
     }
 
     var modelsDirectory: URL {

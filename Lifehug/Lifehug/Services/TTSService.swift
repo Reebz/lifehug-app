@@ -11,7 +11,6 @@ final class TTSService {
     private let logger = Logger(subsystem: "com.lifehug.app", category: "TTS")
     private let synthesizer = AVSpeechSynthesizer()
     private var delegate: TTSDelegate?
-    private var speakContinuation: CheckedContinuation<Void, Never>?
     private var speakGeneration: Int = 0
     private(set) var kokoroManager: KokoroManager?
     private static var cachedVoice: AVSpeechSynthesisVoice?
@@ -27,15 +26,7 @@ final class TTSService {
         kokoroManager = manager
     }
 
-    init() {
-        delegate = TTSDelegate { @Sendable [weak self] in
-            Task { @MainActor in
-                self?.speakContinuation?.resume()
-                self?.speakContinuation = nil
-            }
-        }
-        synthesizer.delegate = delegate
-    }
+    init() {}
 
     func speak(_ sentence: String) async {
         if useKokoro {
@@ -67,9 +58,25 @@ final class TTSService {
         utterance.pitchMultiplier = 1.0
         utterance.postUtteranceDelay = 0.15
 
-        await withCheckedContinuation { continuation in
-            self.speakContinuation = continuation
-            synthesizer.speak(utterance)
+        do {
+            try await withTimeout(seconds: 15) {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    // Double-resume guard: timeout and delegate can both fire
+                    let resumed = OSAllocatedUnfairLock(initialState: false)
+                    self.delegate = TTSDelegate { @Sendable in
+                        resumed.withLock { alreadyResumed in
+                            guard !alreadyResumed else { return }
+                            alreadyResumed = true
+                            Task { @MainActor in continuation.resume() }
+                        }
+                    }
+                    self.synthesizer.delegate = self.delegate
+                    self.synthesizer.speak(utterance)
+                }
+            }
+        } catch is TimeoutError {
+            logger.warning("System TTS timed out after 15s — stopping synthesizer")
+            synthesizer.stopSpeaking(at: .immediate)
         }
         if generation == speakGeneration {
             isSpeaking = false
@@ -81,9 +88,7 @@ final class TTSService {
         kokoroManager?.stopPlayback()
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
-        // Resume any waiting continuation so the caller isn't left suspended
-        speakContinuation?.resume()
-        speakContinuation = nil
+        // The delegate's double-resume guard handles any pending continuation safely.
     }
 
     func degradeToSystemTTS() {

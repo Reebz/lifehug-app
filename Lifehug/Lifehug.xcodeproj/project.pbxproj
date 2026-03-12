@@ -20,6 +20,7 @@
 		431504EABD1CC957BD07EC54 /* QuestionBankParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D493FF79F375789BDDEEE97F /* QuestionBankParserTests.swift */; };
 		47FB704B2B010ED24AAB2495 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC9A23229C292C066857E79D /* DesignTokens.swift */; };
 		488D9984365CA46C719BBB1A /* AnswersBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE30891D1823713F4F65B0D8 /* AnswersBrowserView.swift */; };
+		B2D3E4F5A6071829304B5C6D /* TaskTimeout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C2D3E4F5061728394A5B6C /* TaskTimeout.swift */; };
 		4A8570591E88082D37073834 /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EED3D32E6D17114B39C3472 /* TTSService.swift */; };
 		56B11781A20C905A43854248 /* RotationEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */; };
 		57929C7460E85089153F011C /* OnboardingTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3563AE0C35B70AC3940A61FC /* OnboardingTemplates.swift */; };
@@ -76,6 +77,7 @@
 		4B265E197F7FA3E423981751 /* Question.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Question.swift; sourceTree = "<group>"; };
 		5A4D2C1323F715B58D861BBF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6DA9CEAEA5A5FA53FD8A447A /* kokoro-ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "kokoro-ios"; path = "LocalPackages/kokoro-ios"; sourceTree = SOURCE_ROOT; };
+		A1C2D3E4F5061728394A5B6C /* TaskTimeout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskTimeout.swift; sourceTree = "<group>"; };
 		6EED3D32E6D17114B39C3472 /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationEngineTests.swift; sourceTree = "<group>"; };
 		7E8E6D09AB13C9D9FC0B410D /* STTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTService.swift; sourceTree = "<group>"; };
@@ -142,6 +144,7 @@
 				0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */,
 				832C05A15AE3D2EE8D85891A /* StorageService.swift */,
 				7E8E6D09AB13C9D9FC0B410D /* STTService.swift */,
+				A1C2D3E4F5061728394A5B6C /* TaskTimeout.swift */,
 				6EED3D32E6D17114B39C3472 /* TTSService.swift */,
 			);
 			path = Services;
@@ -381,6 +384,7 @@
 				00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */,
 				C2C3F614DA1FE951F6C8F508 /* SettingsView.swift in Sources */,
 				78A769BE5C53C3D531638291 /* StorageService.swift in Sources */,
+				B2D3E4F5A6071829304B5C6D /* TaskTimeout.swift in Sources */,
 				4A8570591E88082D37073834 /* TTSService.swift in Sources */,
 				8B249EBEE07238316B201355 /* UserConfig.swift in Sources */,
 				1F5491890ABC0F0937A4DAEF /* VoicePipeline.swift in Sources */,

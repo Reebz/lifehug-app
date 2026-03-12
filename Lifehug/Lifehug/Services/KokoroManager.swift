@@ -40,6 +40,8 @@ final class KokoroManager {
     /// Retains the current audio buffer until playback completes (prevents use-after-free).
     private var currentBuffer: AVAudioPCMBuffer?
     private var downloadTask: Task<Void, Never>?
+    /// Guards against concurrent loadEngine() calls (safe as plain Bool because class is @MainActor).
+    private var isLoading = false
 
     // MARK: - File Locations
 
@@ -47,7 +49,11 @@ final class KokoroManager {
     private static let voicesFileName = ModelConfig.Kokoro.voicesFileName
 
     private var kokoroDir: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else {
+            fatalError("Application Support directory unavailable — iOS sandbox is broken")
+        }
         let dir = appSupport.appendingPathComponent("kokoro", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -126,6 +132,7 @@ final class KokoroManager {
 
     /// Load engine from already-downloaded files.
     func loadEngine() async {
+        guard !isLoading else { return }
         guard isModelDownloaded else {
             phase = .idle
             return
@@ -140,6 +147,9 @@ final class KokoroManager {
             logger.warning("Skipping Kokoro load — memory pressure too high (\(MemoryMonitor.availableMB)MB available)")
             return
         }
+
+        isLoading = true
+        defer { isLoading = false }
 
         phase = .loading
         do {
@@ -285,18 +295,25 @@ final class KokoroManager {
             }
         }
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { _ in
-                resumed.withLock { alreadyResumed in
-                    guard !alreadyResumed else { return }
-                    alreadyResumed = true
-                    Task { @MainActor in
-                        continuation.resume()
+        do {
+            try await withTimeout(seconds: 15) {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    let resumed = OSAllocatedUnfairLock(initialState: false)
+                    player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { _ in
+                        resumed.withLock { alreadyResumed in
+                            guard !alreadyResumed else { return }
+                            alreadyResumed = true
+                            Task { @MainActor in
+                                continuation.resume()
+                            }
+                        }
                     }
+                    player.play()
                 }
             }
-            player.play()
+        } catch is TimeoutError {
+            logger.warning("Audio playback timed out after 15s — stopping player")
+            player.stop()
         }
 
         currentBuffer = nil
@@ -360,7 +377,7 @@ final class KokoroManager {
                 }
             }
         }
-        throw lastError!
+        throw lastError ?? KokoroError.downloadFailed("unknown")
     }
 
     private func downloadFileOnce(from url: URL, to destination: URL, label: String) async throws {

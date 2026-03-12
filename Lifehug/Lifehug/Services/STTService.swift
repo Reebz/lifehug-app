@@ -129,6 +129,9 @@ final class STTService {
     }
 
     func stopListening() {
+        // Invalidate any in-flight callback Tasks (prevents stale chainRecognitionRequest)
+        taskGeneration += 1
+
         silenceTimer?.cancel()
         silenceTimer = nil
         shouldKeepListening = false
@@ -144,6 +147,10 @@ final class STTService {
         audioEngine = nil
 
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+        // Safety: ensure the stream consumer isn't left suspended
+        continuation?.finish()
+        continuation = nil
 
         isRecording = false
     }
