@@ -27,6 +27,8 @@ final class STTService {
     /// the real-time render thread (not the main actor). Writes only occur on @MainActor
     /// (startRecognition, chainRecognitionRequest, stopListening). The tap reads via
     /// optional chaining — a nil check races benignly.
+    /// ⚠️ DO NOT add a Mutex or lock here — the audio render thread is real-time and must
+    /// never block. A lock would cause audio glitches or priority inversion.
     nonisolated(unsafe) private var sharedRequest: SFSpeechAudioBufferRecognitionRequest?
 
     init() {

@@ -35,6 +35,7 @@ final class TTSService {
                 try await kokoroManager?.speak(sentence)
             } catch {
                 logger.warning("Kokoro synthesis failed, degrading to system TTS: \(error)")
+                kokoroManager?.stopPlayback()
                 forceDegradedToSystem = true
                 // Fall through to system TTS for this sentence
                 isSpeaking = false

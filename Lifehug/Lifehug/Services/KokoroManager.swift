@@ -4,6 +4,7 @@ import CryptoKit
 @preconcurrency import MLX
 @preconcurrency import KokoroSwift
 @preconcurrency import MLXUtilsLibrary
+import Synchronization
 import UIKit
 import os
 
@@ -29,17 +30,19 @@ final class KokoroManager {
     // MARK: - Private
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Kokoro")
-    // SAFETY: nonisolated(unsafe) is needed because KokoroTTS and MLXArray are not
-    // Sendable but must cross isolation boundaries to Task.detached for heavy computation.
-    // All mutations occur on @MainActor (loadEngine, unloadEngine, deleteModel).
-    // Reads in Task.detached (speak, loadEngine) await completion before the next mutation.
-    nonisolated(unsafe) private var ttsEngine: KokoroTTS?
-    nonisolated(unsafe) private var voices: [String: MLXArray] = [:]
+    /// Thread-safe container for engine state that crosses isolation boundaries to Task.detached.
+    /// Using @unchecked Sendable because the Mutex ensures exclusive access.
+    private struct EngineState: @unchecked Sendable {
+        var ttsEngine: KokoroTTS?
+        var voices: [String: MLXArray] = [:]
+    }
+    private let engineState = Mutex(EngineState())
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     /// Retains the current audio buffer until playback completes (prevents use-after-free).
     private var currentBuffer: AVAudioPCMBuffer?
     private var downloadTask: Task<Void, Never>?
+    private var interruptionObserver: (any NSObjectProtocol)?
     /// Guards against concurrent loadEngine() calls (safe as plain Bool because class is @MainActor).
     private var isLoading = false
 
@@ -137,7 +140,7 @@ final class KokoroManager {
             phase = .idle
             return
         }
-        guard ttsEngine == nil else {
+        guard engineState.withLock({ $0.ttsEngine }) == nil else {
             phase = .ready
             return
         }
@@ -167,8 +170,10 @@ final class KokoroManager {
                 throw KokoroError.voicesEmpty
             }
 
-            ttsEngine = engine
-            voices = loadedVoices
+            engineState.withLock { state in
+                state.ttsEngine = engine
+                state.voices = loadedVoices
+            }
             cachedVoiceNames = loadedVoices.keys.map { String($0.split(separator: ".")[0]) }.sorted()
             setupAudioEngine()
             phase = .ready
@@ -183,11 +188,17 @@ final class KokoroManager {
     func unloadEngine() {
         playerNode?.stop()
         audioEngine?.stop()
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+            interruptionObserver = nil
+        }
         currentBuffer = nil
         audioEngine = nil
         playerNode = nil
-        ttsEngine = nil
-        voices = [:]
+        engineState.withLock { state in
+            state.ttsEngine = nil
+            state.voices = [:]
+        }
         cachedVoiceNames = []
         if phase == .ready {
             phase = .idle
@@ -208,14 +219,15 @@ final class KokoroManager {
     /// Synthesize and play a sentence. Returns when playback completes.
     /// Throws if synthesis fails (OOM, corrupted model, GPU error).
     func speak(_ text: String) async throws {
-        guard let engine = ttsEngine else {
-            throw KokoroError.engineNotLoaded
-        }
-
-        let voiceKey = Self.selectedVoice + ".npy"
-        guard let voiceEmbedding = voices[voiceKey] else {
-            logger.warning("Voice '\(Self.selectedVoice)' not found")
-            throw KokoroError.voiceNotFound(Self.selectedVoice)
+        let (engine, voiceEmbedding) = try engineState.withLock { state -> (KokoroTTS, MLXArray) in
+            guard let engine = state.ttsEngine else {
+                throw KokoroError.engineNotLoaded
+            }
+            let voiceKey = Self.selectedVoice + ".npy"
+            guard let embedding = state.voices[voiceKey] else {
+                throw KokoroError.voiceNotFound(Self.selectedVoice)
+            }
+            return (engine, embedding)
         }
 
         // Determine language from voice prefix
@@ -256,6 +268,37 @@ final class KokoroManager {
 
         audioEngine = engine
         playerNode = player
+        observeAudioInterruptions()
+    }
+
+    private func observeAudioInterruptions() {
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { @Sendable [weak self] notification in
+            let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let typeValue,
+                      let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+                switch type {
+                case .began:
+                    self.logger.info("Audio interruption — stopping Kokoro playback")
+                    self.playerNode?.stop()
+                case .ended:
+                    // Restart audio engine if it was stopped by the interruption
+                    if let engine = self.audioEngine, !engine.isRunning {
+                        try? engine.start()
+                    }
+                @unknown default:
+                    break
+                }
+            }
+        }
     }
 
     private func playAudio(_ samples: [Float]) async {

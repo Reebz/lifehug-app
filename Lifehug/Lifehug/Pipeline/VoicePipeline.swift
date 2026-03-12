@@ -291,7 +291,7 @@ final class VoicePipeline {
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: AVAudioSession.sharedInstance(),
-            queue: nil
+            queue: .main
         ) { @Sendable [weak self] notification in
             // Extract Sendable values before crossing isolation boundary
             let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
@@ -351,7 +351,7 @@ final class VoicePipeline {
         routeChangeObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { @Sendable [weak self] notification in
             // Extract Sendable value before crossing isolation boundary
             let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt

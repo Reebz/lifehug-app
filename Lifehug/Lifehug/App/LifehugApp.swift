@@ -45,6 +45,7 @@ struct LifehugApp: App {
                     modelState.handleScenePhaseChange(newPhase)
                     switch newPhase {
                     case .background:
+                        ttsService.stop()
                         kokoroManager.unloadEngine()
                         llmService.unloadModel()
                     case .active:
