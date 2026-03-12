@@ -29,11 +29,13 @@ struct OnboardingView: View {
             VStack(spacing: 0) {
                 // Progress dots (Issue 8)
                 HStack(spacing: 8) {
-                    ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.offset) { _, s in
+                    ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.offset) { index, s in
                         Circle()
                             .fill(s == step ? Theme.terracotta : Theme.warmGray.opacity(0.3))
                             .frame(width: 8, height: 8)
                             .animation(.easeOut(duration: 0.3), value: step)
+                            .accessibilityLabel("Step \(index + 1) of \(OnboardingStep.allCases.count)")
+                            .accessibilityAddTraits(s == step ? .isSelected : [])
                     }
                 }
                 .padding(.top, 16)

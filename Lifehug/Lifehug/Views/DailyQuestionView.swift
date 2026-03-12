@@ -157,7 +157,7 @@ struct DailyQuestionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(session.conversationTurns) { turn in
-                            voiceTranscriptBubble(for: turn)
+                            VoiceTranscriptBubble(role: turn.role, text: turn.text)
                                 .id(turn.id)
                         }
 
@@ -165,33 +165,31 @@ struct DailyQuestionView: View {
                         if pipeline?.state == .listening,
                            let partial = pipeline?.partialTranscript,
                            !partial.isEmpty {
-                            HStack(alignment: .top, spacing: 6) {
-                                Text("You:")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.terracotta)
-                                Text(partial)
-                                    .font(Theme.bodySerifFont)
-                                    .foregroundStyle(Theme.warmCharcoal.opacity(0.6))
-                                    .italic()
+                            LiveTranscriptBubble(transcript: partial)
+                                .id("livePartial")
+                        }
+
+                        // "Thinking..." indicator before first token
+                        if let pipeline,
+                           pipeline.state == .processing,
+                           pipeline.responseChunks.isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(Theme.warmGray)
+                                Text("Thinking...")
+                                    .font(Theme.captionSerifFont)
+                                    .foregroundStyle(Theme.warmGray)
                             }
                             .padding(.horizontal, 16)
-                            .id("livePartial")
+                            .transition(.opacity)
                         }
 
                         // Streaming LLM response while processing/speaking
                         if let pipeline,
                            (pipeline.state == .processing || pipeline.state == .speaking),
                            !pipeline.responseChunks.isEmpty {
-                            HStack(alignment: .top, spacing: 6) {
-                                Text("AI:")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.sageGreen)
-                                Text(pipeline.responseChunks)
-                                    .font(Theme.bodySerifFont)
-                                    .foregroundStyle(Theme.warmCharcoal.opacity(0.8))
-                            }
-                            .padding(.horizontal, 16)
-                            .id("streamingResponse")
+                            StreamingResponseBubble(text: pipeline.responseChunks)
+                                .id("streamingResponse")
                         }
                     }
                     .padding(.vertical, 12)
@@ -237,8 +235,9 @@ struct DailyQuestionView: View {
                     .background(Capsule().fill(Theme.mutedRose))
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .onAppear {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
                         Task {
-                            try? await Task.sleep(for: .seconds(3))
+                            try? await Task.sleep(for: .seconds(5))
                             pipeline?.error = nil
                         }
                     }
@@ -268,21 +267,6 @@ struct DailyQuestionView: View {
             }
             .disabled(session.conversationTurns.isEmpty || isSaving)
         }
-    }
-
-    // MARK: - Voice Transcript Bubble
-
-    @ViewBuilder
-    private func voiceTranscriptBubble(for turn: ConversationTurn) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(turn.role == .user ? "You:" : "AI:")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(turn.role == .user ? Theme.terracotta : Theme.sageGreen)
-            Text(turn.text)
-                .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmCharcoal)
-        }
-        .padding(.horizontal, 16)
     }
 
     // MARK: - Question Content

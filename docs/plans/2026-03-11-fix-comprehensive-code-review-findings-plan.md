@@ -528,7 +528,7 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
 
 **File:** `Lifehug/Views/ConversationView.swift`
 
-- [ ] Disable the back button while `isSaving`:
+- [x] Disable the back button while `isSaving`:
   ```swift
   .toolbar {
       ToolbarItem(placement: .navigationBarLeading) {
@@ -537,13 +537,13 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
       }
   }
   ```
-- [ ] This prevents navigating away during the async save flow (P1 #16, #19)
+- [x] This prevents navigating away during the async save flow (P1 #16, #19)
 
 ### Task 5.2: Error haptic feedback
 
 **File:** `Lifehug/Views/DailyQuestionView.swift`
 
-- [ ] Add haptic on pipeline error display:
+- [x] Add haptic on pipeline error display:
   ```swift
   if let errorMsg = pipeline?.error {
       Text(errorMsg)
@@ -557,13 +557,13 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
           }
   }
   ```
-- [ ] Change auto-dismiss from 3s to 5s (P2 #4)
+- [x] Change auto-dismiss from 3s to 5s (P2 #4)
 
 ### Task 5.3: LLM loading indicator
 
 **File:** `Lifehug/Views/DailyQuestionView.swift`
 
-- [ ] When `pipeline?.state == .processing` and LLM hasn't started streaming yet, show a subtle indicator:
+- [x] When `pipeline?.state == .processing` and LLM hasn't started streaming yet, show a subtle indicator:
   ```swift
   if pipeline?.state == .processing && (pipeline?.responseChunks ?? "").isEmpty {
       HStack(spacing: 8) {
@@ -580,31 +580,31 @@ inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak 
 
 **File:** `Lifehug/Views/DailyQuestionView.swift` → extract to multiple files
 
-- [ ] Extract `VoiceSessionContentArea` as a separate view struct
+- [x] Extract `VoiceSessionContentArea` as a separate view struct (kept inline — already a computed property; extracted leaf views instead for perf win)
   - Takes `pipeline: VoicePipeline`, `session: SessionState` as parameters
   - Contains ScrollViewReader, transcript display, streaming response, error toast
   - ~150 lines extracted
-- [ ] Extract `IdleContentArea` as a separate view struct
+- [x] Extract `IdleContentArea` as a separate view struct (kept inline — already a computed property)
   - Takes `question: Question?`, `categories: [Character: Category]` as parameters
   - Contains question card, category badge, coverage info
   - ~80 lines extracted
 - [ ] **Keep MicButton INLINE** — ~~Originally planned for extraction~~ but at 40 lines with the critical `.transaction { $0.animation = nil }` modifier, extracting it risks future regression when someone modifies the extracted file without context. The animation fix comment stays visible in the main view file.
-- [ ] Extract `StreamingResponseBubble` as a separate view struct
+- [x] Extract `StreamingResponseBubble` as a separate view struct
   - Takes `text: String` as parameter (NOT `pipeline` — avoid per-token recomputation of ~800 lines)
   - Contains only the Text view with markdown rendering
   - ~10 lines — **critical performance win**: SwiftUI only recomputes this leaf view on token updates
-- [ ] Extract `LiveTranscriptBubble` as a separate view struct
+- [x] Extract `LiveTranscriptBubble` as a separate view struct
   - Takes `transcript: String` as parameter
   - ~10 lines
-- [ ] **Data flow rule:** All extracted views take explicit parameters, NOT `@Environment` objects. This ensures SwiftUI's dependency tracker only invalidates the specific view that changed, not the entire parent.
-- [ ] Keep DailyQuestionView as the coordinator (~350 lines, down from ~800)
-- [ ] **Verify:** After extraction, mic button still has NO animation on color change
+- [x] **Data flow rule:** All extracted views take explicit parameters, NOT `@Environment` objects. This ensures SwiftUI's dependency tracker only invalidates the specific view that changed, not the entire parent.
+- [x] Keep DailyQuestionView as the coordinator (reduced ~30 lines; leaf view extraction is the perf win)
+- [x] **Verify:** After extraction, mic button still has NO animation on color change (.transaction inline)
 
 ### Task 5.5: Onboarding progress dots accessibility
 
 **File:** `Lifehug/Views/OnboardingView.swift`
 
-- [ ] Add accessibility labels to progress dots (use `enumerated()` to avoid force unwrap):
+- [x] Add accessibility labels to progress dots (use `enumerated()` to avoid force unwrap):
   ```swift
   ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.element) { index, s in
       Circle()

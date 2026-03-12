@@ -54,6 +54,7 @@ struct ConversationView: View {
                     Image(systemName: "chevron.left")
                         .foregroundStyle(Theme.warmCharcoal)
                 }
+                .disabled(isSaving)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

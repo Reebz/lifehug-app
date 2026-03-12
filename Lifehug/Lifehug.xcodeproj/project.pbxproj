@@ -44,6 +44,7 @@
 		C324FE40569DA679E7EC6B9D /* LaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22019C30A342365334B8F87A /* LaunchView.swift */; };
 		CF5B3DF5157BD3FD0B0A0181 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAABB9577BF1FF3D9BE51A49 /* ConversationView.swift */; };
 		D10E751FFEA6C7E648C077BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */; };
+		F5E4D3C2B1A09F8E7D6C5B4A /* DailyQuestionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B5C6D7E8F90A1B2C3D4E5F /* DailyQuestionComponents.swift */; };
 		DF1813C3C1EA9C8E4FA9BF71 /* DailyQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35230BC9CDA761A04DD75E61 /* DailyQuestionView.swift */; };
 		E5FE6BC7CE0608BFCEA0637E /* RotationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */; };
 		F62B165C171836E083EC79DB /* CoverageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16C46CA09C84C8C3A63FF0F /* CoverageView.swift */; };
@@ -69,6 +70,7 @@
 		2F23D7C44A9B7E40F5E484F5 /* LifehugApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifehugApp.swift; sourceTree = "<group>"; };
 		32DD8789D13CE57EEBA440D2 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		35230BC9CDA761A04DD75E61 /* DailyQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyQuestionView.swift; sourceTree = "<group>"; };
+		A4B5C6D7E8F90A1B2C3D4E5F /* DailyQuestionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyQuestionComponents.swift; sourceTree = "<group>"; };
 		3563AE0C35B70AC3940A61FC /* OnboardingTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTemplates.swift; sourceTree = "<group>"; };
 		40BEBD9BD593024E69189095 /* Category.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Category.swift; sourceTree = "<group>"; };
 		43895F80B5CF97DB267E7E7E /* ModelConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfig.swift; sourceTree = "<group>"; };
@@ -235,6 +237,7 @@
 				DE30891D1823713F4F65B0D8 /* AnswersBrowserView.swift */,
 				EAABB9577BF1FF3D9BE51A49 /* ConversationView.swift */,
 				C16C46CA09C84C8C3A63FF0F /* CoverageView.swift */,
+				A4B5C6D7E8F90A1B2C3D4E5F /* DailyQuestionComponents.swift */,
 				35230BC9CDA761A04DD75E61 /* DailyQuestionView.swift */,
 				22019C30A342365334B8F87A /* LaunchView.swift */,
 				9BE696691F9A5DFD0A9C37DD /* OnboardingView.swift */,
@@ -364,6 +367,7 @@
 				9F920096C5AA04827AB2108E /* ChapterGenerator.swift in Sources */,
 				CF5B3DF5157BD3FD0B0A0181 /* ConversationView.swift in Sources */,
 				F62B165C171836E083EC79DB /* CoverageView.swift in Sources */,
+				F5E4D3C2B1A09F8E7D6C5B4A /* DailyQuestionComponents.swift in Sources */,
 				DF1813C3C1EA9C8E4FA9BF71 /* DailyQuestionView.swift in Sources */,
 				47FB704B2B010ED24AAB2495 /* DesignTokens.swift in Sources */,
 				5FA842A512A7B2E1F5E99EF7 /* KokoroManager.swift in Sources */,
