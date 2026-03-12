@@ -18,6 +18,7 @@ final class ModelDownloader {
     private(set) var downloadedMB: Double = 0
     private(set) var totalMB: Double = 0
     private(set) var phase: Phase = .idle
+    private var lastProgressUpdate: Date = .distantPast
     private(set) var errorMessage: String?
 
     enum Phase: Sendable {
@@ -159,6 +160,11 @@ final class ModelDownloader {
         ) { [weak self] progress in
             guard let self else { return }
             Task { @MainActor in
+                // Throttle UI updates to ~10 Hz to avoid excessive SwiftUI redraws
+                let now = Date()
+                guard now.timeIntervalSince(self.lastProgressUpdate) >= 0.1
+                      || progress.fractionCompleted >= 1.0 else { return }
+                self.lastProgressUpdate = now
                 self.progress = progress.fractionCompleted
                 self.downloadedMB = Double(progress.completedUnitCount) / 1_000_000
                 self.totalMB = Double(progress.totalUnitCount) / 1_000_000

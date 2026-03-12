@@ -6,7 +6,12 @@ struct QuestionBankParser {
 
     /// Discover categories from question-bank.md headers like `## A: Origins (Childhood & Family)`
     /// Group assignment uses letter range only (A-E = main, F-J = project, K+ = spotlight).
+    /// Maximum question bank size (1 MB). Files larger than this are rejected.
+    private static let maxMarkdownSize = 1_000_000
+
     static func parseCategories(from markdown: String) -> [Character: Category] {
+        guard markdown.count < maxMarkdownSize else { return [:] }
+
         let headerPattern = /^## ([A-Z]): (.+?)(?:\s*\(.*\))?\s*$/
         var categories: [Character: Category] = [:]
 
@@ -25,10 +30,13 @@ struct QuestionBankParser {
 
     /// Parse questions from markdown. Format: `- [ ] A1: Question text` or `- [x] A1: Question text *(date)*`
     static func parseQuestions(from markdown: String) -> [Question] {
+        guard markdown.count < maxMarkdownSize else { return [] }
+
         let pattern = /^- \[([ x])\] ([A-Z]\d+): (.+?)(?:\s*\*\(.+\)\*)?$/
         var questions: [Question] = []
 
         for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            guard line.count < 500 else { continue }  // Skip excessively long lines
             let lineStr = String(line)
             guard let match = lineStr.firstMatch(of: pattern) else { continue }
             let answered = String(match.1) == "x"

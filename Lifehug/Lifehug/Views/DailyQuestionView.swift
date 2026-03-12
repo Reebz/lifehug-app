@@ -266,6 +266,7 @@ struct DailyQuestionView: View {
                 )
             }
             .disabled(session.conversationTurns.isEmpty || isSaving)
+            .accessibilityLabel(isSaving ? "Saving your answer" : "Done and save your answer")
         }
     }
 

@@ -84,8 +84,12 @@ struct SettingsView: View {
                 TextField("Your name", text: $userName)
                     .multilineTextAlignment(.trailing)
                     .foregroundStyle(Theme.warmCharcoal)
+                    .onChange(of: userName) { _, newValue in
+                        if newValue.count > 100 {
+                            userName = String(newValue.prefix(100))
+                        }
+                    }
                     .onSubmit { saveName() }
-                    .onChange(of: userName) { _, _ in saveName() }
             }
             .listRowBackground(Color.white)
         } header: {

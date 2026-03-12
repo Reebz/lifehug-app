@@ -138,6 +138,13 @@ final class VoicePipeline {
 
         for await transcript in stream {
             guard !Task.isCancelled else { return }
+            // Cap transcript length to prevent unbounded memory growth
+            if transcript.count > 50_000 {
+                logger.warning("Transcript exceeded 50K characters — stopping recording")
+                sttService.stopListening()
+                partialTranscript = String(transcript.prefix(50_000))
+                break
+            }
             partialTranscript = transcript
 
             // Check for termination phrase at end of transcript

@@ -249,6 +249,14 @@ final class KokoroManager {
     // MARK: - Audio Playback
 
     private func setupAudioEngine() {
+        // Configure audio session before starting engine
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            logger.error("Audio session setup failed: \(error)")
+        }
+
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         engine.attach(player)
@@ -444,7 +452,9 @@ final class KokoroManager {
         // Verify SHA-256 integrity if a real hash is configured
         let expectedHash = ModelConfig.Kokoro.modelSHA256
 
-        if expectedHash != "PLACEHOLDER_COMPUTE_ON_FIRST_DOWNLOAD" {
+        if expectedHash == "PLACEHOLDER_COMPUTE_ON_FIRST_DOWNLOAD" {
+            logger.warning("Model integrity verification disabled — SHA-256 placeholder in use for \(label)")
+        } else {
             // Stream hash computation in 1MB chunks to avoid 160MB memory spike
             let handle = try FileHandle(forReadingFrom: destination)
             defer { try? handle.close() }
