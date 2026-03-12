@@ -59,26 +59,44 @@ final class TTSService {
         utterance.pitchMultiplier = 1.0
         utterance.postUtteranceDelay = 0.15
 
-        do {
-            try await withTimeout(seconds: 15) {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    // Double-resume guard: timeout and delegate can both fire
-                    let resumed = OSAllocatedUnfairLock(initialState: false)
-                    self.delegate = TTSDelegate { @Sendable in
-                        resumed.withLock { alreadyResumed in
-                            guard !alreadyResumed else { return }
-                            alreadyResumed = true
-                            Task { @MainActor in continuation.resume() }
-                        }
-                    }
-                    self.synthesizer.delegate = self.delegate
-                    self.synthesizer.speak(utterance)
+        // Timeout via cancellable sleep task — avoids task group `sending` issues
+        // with non-Sendable AVSpeechUtterance and MainActor-isolated self.
+        let timeoutTask = Task {
+            try await Task.sleep(for: .seconds(15))
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            self.delegate = TTSDelegate { @Sendable in
+                resumed.withLock { alreadyResumed in
+                    guard !alreadyResumed else { return }
+                    alreadyResumed = true
+                    timeoutTask.cancel()
+                    Task { @MainActor in continuation.resume() }
                 }
             }
-        } catch is TimeoutError {
-            logger.warning("System TTS timed out after 15s — stopping synthesizer")
-            synthesizer.stopSpeaking(at: .immediate)
+            self.synthesizer.delegate = self.delegate
+            self.synthesizer.speak(utterance)
+
+            // Fire timeout: if sleep completes (not cancelled), force-resume
+            Task { [weak self] in
+                do {
+                    try await timeoutTask.value
+                    // Timeout expired — force resume
+                    resumed.withLock { alreadyResumed in
+                        guard !alreadyResumed else { return }
+                        alreadyResumed = true
+                        Task { @MainActor in
+                            self?.logger.warning("System TTS timed out after 15s — stopping synthesizer")
+                            self?.synthesizer.stopSpeaking(at: .immediate)
+                            continuation.resume()
+                        }
+                    }
+                } catch {
+                    // Cancelled — speech completed normally, nothing to do
+                }
+            }
         }
+        // Timeout handling is inside the continuation above
         if generation == speakGeneration {
             isSpeaking = false
         }

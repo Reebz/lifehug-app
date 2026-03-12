@@ -346,11 +346,16 @@ final class KokoroManager {
             }
         }
 
+        // nonisolated(unsafe): AVAudioPlayerNode/AVAudioPCMBuffer are non-Sendable Apple
+        // framework types. Safe here because playback is serialized on MainActor and we
+        // only read these inside the completion callback (which runs on an internal audio thread).
+        nonisolated(unsafe) let unsafePlayer = player
+        nonisolated(unsafe) let unsafeBuffer = buffer
         do {
             try await withTimeout(seconds: 15) {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     let resumed = OSAllocatedUnfairLock(initialState: false)
-                    player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { _ in
+                    unsafePlayer.scheduleBuffer(unsafeBuffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { @Sendable _ in
                         resumed.withLock { alreadyResumed in
                             guard !alreadyResumed else { return }
                             alreadyResumed = true
@@ -359,12 +364,14 @@ final class KokoroManager {
                             }
                         }
                     }
-                    player.play()
+                    unsafePlayer.play()
                 }
             }
         } catch is TimeoutError {
             logger.warning("Audio playback timed out after 15s — stopping player")
             player.stop()
+        } catch {
+            logger.error("Audio playback error: \(error)")
         }
 
         currentBuffer = nil
