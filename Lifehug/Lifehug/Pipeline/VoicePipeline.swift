@@ -75,6 +75,9 @@ final class VoicePipeline {
         activeTask = nil
         state = .idle
         removeAudioObservers()
+        // Deactivate audio session now that the voice conversation is truly over.
+        // This lets other apps (music, podcasts) resume their audio.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     /// Start observing audio interruptions and route changes.
@@ -262,6 +265,10 @@ final class VoicePipeline {
                     guard !Task.isCancelled else { break }
                     state = .speaking
                     await ttsService.speak(sentence)
+                    // Re-check after speak returns — interrupt() may have fired mid-sentence,
+                    // starting STT. Without this guard, the next playAudio() call would
+                    // conflict with the already-running STT engine.
+                    guard !Task.isCancelled else { break }
                 }
 
                 // Cancel producer if consumer exited early (e.g., pipeline interrupted)

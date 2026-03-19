@@ -43,6 +43,8 @@ final class KokoroManager {
     private var currentBuffer: AVAudioPCMBuffer?
     private var downloadTask: Task<Void, Never>?
     private var interruptionObserver: (any NSObjectProtocol)?
+    private var routeChangeObserver: (any NSObjectProtocol)?
+    private var mediaResetObserver: (any NSObjectProtocol)?
     /// Guards against concurrent loadEngine() calls (safe as plain Bool because class is @MainActor).
     private var isLoading = false
 
@@ -188,10 +190,12 @@ final class KokoroManager {
     func unloadEngine() {
         playerNode?.stop()
         audioEngine?.stop()
-        if let observer = interruptionObserver {
+        for observer in [interruptionObserver, routeChangeObserver, mediaResetObserver].compactMap({ $0 }) {
             NotificationCenter.default.removeObserver(observer)
-            interruptionObserver = nil
         }
+        interruptionObserver = nil
+        routeChangeObserver = nil
+        mediaResetObserver = nil
         currentBuffer = nil
         audioEngine = nil
         playerNode = nil
@@ -249,9 +253,14 @@ final class KokoroManager {
     // MARK: - Audio Playback
 
     private func setupAudioEngine() {
-        // Configure audio session before starting engine
+        // Configure audio session for both recording and playback — use .playAndRecord
+        // everywhere so STT and TTS share the same category. This eliminates the crash
+        // caused by category switching between .playAndRecord (STT) and .playback (TTS).
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setCategory(
+                .playAndRecord, mode: .default,
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            )
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             logger.error("Audio session setup failed: \(error)")
@@ -277,6 +286,8 @@ final class KokoroManager {
         audioEngine = engine
         playerNode = player
         observeAudioInterruptions()
+        observeRouteChanges()
+        observeMediaServicesReset()
     }
 
     private func observeAudioInterruptions() {
@@ -298,7 +309,9 @@ final class KokoroManager {
                     self.logger.info("Audio interruption — stopping Kokoro playback")
                     self.playerNode?.stop()
                 case .ended:
-                    // Restart audio engine if it was stopped by the interruption
+                    // Reactivate audio session and restart engine after interruption
+                    // (phone call, Siri). Category is already .playAndRecord.
+                    try? AVAudioSession.sharedInstance().setActive(true)
                     if let engine = self.audioEngine, !engine.isRunning {
                         try? engine.start()
                     }
@@ -309,8 +322,60 @@ final class KokoroManager {
         }
     }
 
+    private func observeRouteChanges() {
+        if let observer = routeChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        routeChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { @Sendable [weak self] notification in
+            let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let reasonValue,
+                      let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+                if reason == .oldDeviceUnavailable {
+                    // Bluetooth device disconnected mid-playback — stop player so the
+                    // continuation resumes naturally. The engine adapts to the new route
+                    // (built-in speaker) on next engine.start().
+                    self.logger.info("Audio route changed — device disconnected, stopping playback")
+                    self.playerNode?.stop()
+                }
+            }
+        }
+    }
+
+    private func observeMediaServicesReset() {
+        if let observer = mediaResetObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        mediaResetObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: .main
+        ) { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.logger.warning("Media services reset — recreating audio engine")
+                self.playerNode?.stop()
+                self.currentBuffer = nil
+                self.audioEngine = nil
+                self.playerNode = nil
+                self.setupAudioEngine()
+            }
+        }
+    }
+
     private func playAudio(_ samples: [Float]) async {
         guard let engine = audioEngine, let player = playerNode else { return }
+
+        logger.info("playAudio: \(samples.count) samples, engine.isRunning=\(engine.isRunning)")
+
+        // Ensure audio session is active — it may have been deactivated by
+        // VoicePipeline.stopAll() or an interruption handler.
+        try? AVAudioSession.sharedInstance().setActive(true)
 
         let sampleRate = Double(KokoroTTS.Constants.samplingRate)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
@@ -351,20 +416,34 @@ final class KokoroManager {
         // only read these inside the completion callback (which runs on an internal audio thread).
         nonisolated(unsafe) let unsafePlayer = player
         nonisolated(unsafe) let unsafeBuffer = buffer
+        // Shared state for double-resume guard and cancellation safety.
+        // The continuation reference is stored in the lock so onCancel can resume it,
+        // preventing the fatal "leaked continuation" trap when withTimeout cancels the task.
+        let state = OSAllocatedUnfairLock(initialState: PlaybackState())
         do {
             try await withTimeout(seconds: 15) {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    let resumed = OSAllocatedUnfairLock(initialState: false)
-                    unsafePlayer.scheduleBuffer(unsafeBuffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { @Sendable _ in
-                        resumed.withLock { alreadyResumed in
-                            guard !alreadyResumed else { return }
-                            alreadyResumed = true
-                            Task { @MainActor in
-                                continuation.resume()
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        state.withLock { $0.continuation = continuation }
+                        unsafePlayer.scheduleBuffer(unsafeBuffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { @Sendable _ in
+                            state.withLock { s in
+                                guard !s.resumed else { return }
+                                s.resumed = true
+                                let cont = s.continuation
+                                s.continuation = nil
+                                Task { @MainActor in cont?.resume() }
                             }
                         }
+                        unsafePlayer.play()
                     }
-                    unsafePlayer.play()
+                } onCancel: {
+                    state.withLock { s in
+                        guard !s.resumed else { return }
+                        s.resumed = true
+                        let cont = s.continuation
+                        s.continuation = nil
+                        Task { @MainActor in cont?.resume() }
+                    }
                 }
             }
         } catch is TimeoutError {
@@ -374,6 +453,7 @@ final class KokoroManager {
             logger.error("Audio playback error: \(error)")
         }
 
+        logger.info("playAudio: completed")
         currentBuffer = nil
     }
 
@@ -484,6 +564,16 @@ final class KokoroManager {
         }
 
         logger.info("Kokoro \(label) downloaded successfully")
+    }
+
+    // MARK: - Playback State
+
+    /// Shared state for audio playback continuation safety.
+    /// Stored inside OSAllocatedUnfairLock so both the scheduleBuffer callback
+    /// and withTaskCancellationHandler's onCancel can resume the continuation.
+    private struct PlaybackState: @unchecked Sendable {
+        var resumed = false
+        var continuation: CheckedContinuation<Void, Never>?
     }
 
     // MARK: - Errors

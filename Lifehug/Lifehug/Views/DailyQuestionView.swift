@@ -33,11 +33,14 @@ struct DailyQuestionView: View {
             ZStack {
                 Theme.cream.ignoresSafeArea()
 
-                if voiceSessionActive {
-                    voiceSessionContentArea
-                } else {
-                    idleContentArea
+                Group {
+                    if voiceSessionActive {
+                        voiceSessionContentArea
+                    } else {
+                        idleContentArea
+                    }
                 }
+                .animation(.easeOut(duration: 0.3), value: voiceSessionActive)
 
                 if showSavedConfirmation {
                     savedOverlay
@@ -53,12 +56,16 @@ struct DailyQuestionView: View {
 
                     if showTypeInput {
                         typeInputArea
-                    } else if !voiceSessionActive {
+                    } else {
+                        // Keep typeInsteadButton in hierarchy but invisible during voice
+                        // sessions to prevent safeAreaInset height change (layout jump).
                         typeInsteadButton
+                            .visible(!voiceSessionActive)
                     }
 
-                    // View Conversation button (Issue 2)
-                    if !session.conversationTurns.isEmpty && !voiceSessionActive {
+                    // View Conversation button — kept in hierarchy during voice sessions
+                    // for layout stability (prevents mic button from jumping vertically).
+                    if !session.conversationTurns.isEmpty {
                         Button {
                             navigateToConversation = true
                         } label: {
@@ -73,6 +80,7 @@ struct DailyQuestionView: View {
                             .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
+                        .visible(!voiceSessionActive)
                     }
                 }
                 .padding(.bottom, 8)
@@ -531,6 +539,9 @@ struct DailyQuestionView: View {
     // MARK: - Voice Session Management
 
     private func startVoiceSession() {
+        // Guard against double-tap creating duplicate pipelines and STT streams
+        guard !voiceSessionActive, pipeline == nil else { return }
+
         // Create pipeline and wire callbacks immediately (no async delay)
         let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
         pipe.autoReopenMic = true
@@ -558,14 +569,14 @@ struct DailyQuestionView: View {
             hasStartedLLMSession = true
         }
 
+        // Order matters for instant mic button feedback:
+        // 1. Assign pipeline (so micButtonColor can read pipeline.state)
         pipeline = pipe
-
-        withAnimation(.easeOut(duration: 0.3)) {
-            voiceSessionActive = true
-        }
-
-        // Start listening immediately — LLM loads in background if needed
+        // 2. Start listening (sets state = .listening synchronously → mic turns red)
         pipe.startListening()
+        // 3. Flip layout flag WITHOUT withAnimation — mic button color must snap instantly.
+        //    Content area crossfade is handled by .animation() on the content ZStack.
+        voiceSessionActive = true
 
         // Load LLM model in background (won't block mic)
         if !llmService.isLoaded {
@@ -580,11 +591,7 @@ struct DailyQuestionView: View {
         voiceSessionTask = nil
         pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
-
-        withAnimation(.easeOut(duration: 0.3)) {
-            voiceSessionActive = false
-        }
-
+        voiceSessionActive = false
         pipeline = nil
     }
 
@@ -595,11 +602,7 @@ struct DailyQuestionView: View {
         voiceSessionTask = nil
         pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
-
-        withAnimation(.easeOut(duration: 0.3)) {
-            voiceSessionActive = false
-        }
-
+        voiceSessionActive = false
         pipeline = nil
 
         if hasTurns {

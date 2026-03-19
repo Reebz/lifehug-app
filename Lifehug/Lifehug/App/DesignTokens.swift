@@ -52,3 +52,16 @@ extension Color {
         )
     }
 }
+
+// MARK: - Visibility Modifier
+
+extension View {
+    /// Hides a view while preserving its layout space. The view remains in the
+    /// hierarchy but is invisible, non-interactive, and hidden from VoiceOver.
+    /// Use instead of conditional `if` to prevent layout jumps.
+    func visible(_ isVisible: Bool) -> some View {
+        self.opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+            .accessibilityHidden(!isVisible)
+    }
+}

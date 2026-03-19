@@ -148,7 +148,9 @@ final class STTService {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        // Do NOT call setActive(false) here — the audio session must stay active
+        // for TTS playback that follows immediately. Session is deactivated only
+        // when the entire voice conversation ends (VoicePipeline.stopAll()).
 
         // Safety: ensure the stream consumer isn't left suspended
         continuation?.finish()
@@ -176,14 +178,10 @@ final class STTService {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        // Configure audio session — use .default mode (not .measurement) for better TTS
-        // quality and Bluetooth routing. Use both Bluetooth options for high-quality output.
-        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [
-            .defaultToSpeaker,
-            .allowBluetooth,
-            .allowBluetoothA2DP
-        ])
+        // Audio session is already configured by KokoroManager.setupAudioEngine() as
+        // .playAndRecord with matching options. Do NOT reconfigure or deactivate here —
+        // category switching between STT and TTS causes hard crashes in mediaserverd.
+        // Just ensure the session is active.
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
         let engine = AVAudioEngine()
