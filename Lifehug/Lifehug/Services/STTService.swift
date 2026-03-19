@@ -178,10 +178,15 @@ final class STTService {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        // Audio session is already configured by KokoroManager.setupAudioEngine() as
-        // .playAndRecord with matching options. Do NOT reconfigure or deactivate here —
-        // category switching between STT and TTS causes hard crashes in mediaserverd.
-        // Just ensure the session is active.
+        // Audio session is normally configured by KokoroManager.setupAudioEngine() as
+        // .playAndRecord. If Kokoro is disabled or not yet loaded, the category may still
+        // be .soloAmbient (default), which doesn't support recording. Defensively ensure
+        // the correct category before activating.
+        if audioSession.category != .playAndRecord {
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [
+                .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
+            ])
+        }
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
         let engine = AVAudioEngine()

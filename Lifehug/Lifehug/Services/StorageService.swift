@@ -189,6 +189,13 @@ final class StorageService {
     // MARK: - Answer File I/O
 
     func saveAnswer(_ answer: Answer) throws {
+        // Defense-in-depth: validate questionID format before constructing file path.
+        // IDs are generated internally (e.g., "A1", "K12") but this guard prevents
+        // path traversal if a malformed ID ever reaches this code path.
+        guard answer.questionID.range(of: #"^[A-Z]\d+$"#, options: .regularExpression) != nil else {
+            logger.error("Invalid questionID format: \(answer.questionID)")
+            return
+        }
         let filename = "\(answer.questionID).md"
         let url = answersDirectory.appendingPathComponent(filename)
         let content = answer.toMarkdown()
