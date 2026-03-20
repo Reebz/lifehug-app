@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 @main
 struct LifehugApp: App {
@@ -12,6 +13,16 @@ struct LifehugApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Check for crash breadcrumb from previous session
+        let breadcrumbURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("pipeline-breadcrumb.txt")
+        if let breadcrumb = try? String(contentsOf: breadcrumbURL, encoding: .utf8) {
+            let logger = Logger(subsystem: "com.lifehug.app", category: "CrashDetection")
+            logger.error("⚠️ PREVIOUS SESSION CRASH DETECTED — last breadcrumb: \(breadcrumb)")
+            // Clean up so we don't re-report
+            try? FileManager.default.removeItem(at: breadcrumbURL)
+        }
+
         UISegmentedControl.appearance().selectedSegmentTintColor = UIColor(Theme.terracotta)
         UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
         UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor(Theme.walnut)], for: .normal)
@@ -37,9 +48,11 @@ struct LifehugApp: App {
                 .environment(kokoroManager)
                 .task {
                     ttsService.setKokoroManager(kokoroManager)
-                    if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
-                        await kokoroManager.loadEngine()
-                    }
+                    // DIAGNOSTIC: Skip Kokoro model loading entirely to free ~80MB RAM.
+                    // This tests whether the crash is caused by memory pressure.
+                    // if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
+                    //     await kokoroManager.loadEngine()
+                    // }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     modelState.handleScenePhaseChange(newPhase)
@@ -55,13 +68,13 @@ struct LifehugApp: App {
                             if !llmService.isLoaded {
                                 try? await llmService.loadModel()
                             }
-                            // Reset Kokoro degradation if conditions allow
-                            if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
-                                ttsService.forceDegradedToSystem = false
-                                if !kokoroManager.isReady {
-                                    await kokoroManager.loadEngine()
-                                }
-                            }
+                            // DIAGNOSTIC: Skip Kokoro reload to test memory hypothesis
+                            // if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
+                            //     ttsService.forceDegradedToSystem = false
+                            //     if !kokoroManager.isReady {
+                            //         await kokoroManager.loadEngine()
+                            //     }
+                            // }
                         }
                     default:
                         break

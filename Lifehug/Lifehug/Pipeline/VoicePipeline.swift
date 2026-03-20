@@ -217,11 +217,21 @@ final class VoicePipeline {
 
     // MARK: - Processing (LLM -> TTS)
 
+    /// Write a breadcrumb to disk so we can see the last pipeline stage after a crash.
+    /// File persists across app launches — check it on startup to detect crash-during-speech.
+    private func writeBreadcrumb(_ stage: String) {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("pipeline-breadcrumb.txt")
+        let content = "\(stage) | memory: \(MemoryMonitor.availableMB)MB | \(Date())"
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     private func processUserInput(_ text: String) {
         state = .processing
         responseChunks = ""
         sentenceBuffer = SentenceBuffer()
         checkMemoryPressure()
+        writeBreadcrumb("processUserInput-start")
 
         activeTask?.cancel()
         activeTask = Task {
@@ -254,12 +264,18 @@ final class VoicePipeline {
 
                 guard !Task.isCancelled else { return }
 
+                self.logger.info("LLM complete: \(sentences.count) sentences, memory: \(MemoryMonitor.availableMB)MB")
+                self.writeBreadcrumb("llm-complete-\(sentences.count)-sentences")
+
                 // Phase 2: Speak sentences sequentially (Metal GPU for Kokoro only)
                 // LLM inference is complete — no concurrent Metal access.
-                for sentence in sentences {
+                for (index, sentence) in sentences.enumerated() {
                     guard !Task.isCancelled else { break }
                     state = .speaking
+                    self.logger.info("Speaking sentence \(index + 1)/\(sentences.count) (\(sentence.count) chars), memory: \(MemoryMonitor.availableMB)MB")
+                    self.writeBreadcrumb("speaking-\(index + 1)-of-\(sentences.count)")
                     await ttsService.speak(sentence)
+                    self.logger.info("Sentence \(index + 1) complete, memory: \(MemoryMonitor.availableMB)MB")
                     guard !Task.isCancelled else { break }
                 }
 
