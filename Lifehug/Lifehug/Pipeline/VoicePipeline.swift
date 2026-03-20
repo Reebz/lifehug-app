@@ -226,56 +226,42 @@ final class VoicePipeline {
         activeTask?.cancel()
         activeTask = Task {
             do {
-                // Pipeline: LLM produces sentences, TTS consumes them concurrently.
-                // The LLM keeps generating while TTS plays the previous sentence.
-                let (sentenceStream, continuation) = AsyncStream<String>.makeStream()
+                // IMPORTANT: LLM (MLX) and Kokoro TTS (MLX) both use Metal GPU.
+                // Running them concurrently on separate threads crashes the GPU driver.
+                // Solution: collect ALL LLM output first, THEN synthesize/speak sentences.
+                // This serializes Metal GPU access at the cost of slightly delayed first speech.
                 var fullResponse = ""
+                var sentences: [String] = []
 
-                // Producer: consume LLM stream, extract sentences, yield to TTS consumer
-                let producer = Task {
-                    do {
-                        let stream = llmService.streamResponse(to: text)
+                // Phase 1: Generate complete LLM response (Metal GPU for LLM only)
+                let stream = llmService.streamResponse(to: text)
+                for try await chunk in stream {
+                    guard !Task.isCancelled else { return }
+                    fullResponse += chunk
+                    responseChunks = fullResponse
+                    sentenceBuffer.append(chunk)
 
-                        for try await chunk in stream {
-                            guard !Task.isCancelled else { return }
-
-                            fullResponse += chunk
-                            responseChunks = fullResponse
-                            sentenceBuffer.append(chunk)
-
-                            while let sentence = sentenceBuffer.extractSentence() {
-                                continuation.yield(sentence)
-                            }
-                        }
-
-                        // Flush remaining buffer
-                        let remaining = sentenceBuffer.flush()
-                        if !remaining.isEmpty {
-                            continuation.yield(remaining)
-                        }
-                        continuation.finish()
-                    } catch {
-                        continuation.finish()
-                        throw error
+                    while let sentence = sentenceBuffer.extractSentence() {
+                        sentences.append(sentence)
                     }
                 }
 
-                // Consumer: speak sentences sequentially as they arrive
-                for await sentence in sentenceStream {
+                // Flush remaining buffer
+                let remaining = sentenceBuffer.flush()
+                if !remaining.isEmpty {
+                    sentences.append(remaining)
+                }
+
+                guard !Task.isCancelled else { return }
+
+                // Phase 2: Speak sentences sequentially (Metal GPU for Kokoro only)
+                // LLM inference is complete — no concurrent Metal access.
+                for sentence in sentences {
                     guard !Task.isCancelled else { break }
                     state = .speaking
                     await ttsService.speak(sentence)
-                    // Re-check after speak returns — interrupt() may have fired mid-sentence,
-                    // starting STT. Without this guard, the next playAudio() call would
-                    // conflict with the already-running STT engine.
                     guard !Task.isCancelled else { break }
                 }
-
-                // Cancel producer if consumer exited early (e.g., pipeline interrupted)
-                producer.cancel()
-
-                // Propagate any producer error
-                try await producer.value
 
                 onResponseGenerated?(fullResponse)
 

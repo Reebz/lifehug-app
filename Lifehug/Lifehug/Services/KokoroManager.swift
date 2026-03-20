@@ -237,9 +237,13 @@ final class KokoroManager {
         // Determine language from voice prefix
         let language: Language = Self.selectedVoice.hasPrefix("b") ? .enGB : .enUS
 
+        logger.info("Kokoro synthesis starting — available memory: \(MemoryMonitor.availableMB)MB, text length: \(text.count)")
+
         let (audio, _) = try await Task.detached {
             try engine.generateAudio(voice: voiceEmbedding, language: language, text: text, speed: 1.1)
         }.value
+
+        logger.info("Kokoro synthesis complete — \(audio.count) samples, available memory: \(MemoryMonitor.availableMB)MB")
 
         await playAudio(audio)
     }
@@ -370,6 +374,19 @@ final class KokoroManager {
 
     private func playAudio(_ samples: [Float]) async {
         guard let engine = audioEngine, let player = playerNode else { return }
+
+        // Validate samples before scheduling on the audio engine.
+        // NaN/Inf values from Kokoro's neural decoder crash the audio render thread
+        // (native crash with no Swift error handling). Empty samples crash buffer creation.
+        guard !samples.isEmpty else {
+            logger.warning("playAudio: empty sample array — skipping")
+            return
+        }
+        let hasInvalidSamples = samples.contains(where: { $0.isNaN || $0.isInfinite })
+        if hasInvalidSamples {
+            logger.error("playAudio: samples contain NaN or Inf — skipping to prevent audio crash")
+            return
+        }
 
         logger.info("playAudio: \(samples.count) samples, engine.isRunning=\(engine.isRunning)")
 
