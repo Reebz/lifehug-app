@@ -16,8 +16,10 @@ final class TTSService {
     private static var cachedVoice: AVSpeechSynthesisVoice?
 
     /// Whether Kokoro neural TTS should be used for speech.
+    /// DIAGNOSTIC BUILD: Kokoro disabled to isolate crash. If crash stops,
+    /// Kokoro is the culprit. Remove `false &&` to re-enable.
     var useKokoro: Bool {
-        KokoroManager.isEnabled
+        false && KokoroManager.isEnabled
         && kokoroManager?.isReady == true
         && !forceDegradedToSystem
     }
