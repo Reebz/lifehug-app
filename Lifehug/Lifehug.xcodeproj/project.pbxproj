@@ -10,9 +10,9 @@
 		00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */; };
 		0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2FC2AA88E660C6579714592 /* ModelState.swift */; };
 		1436E589C929D07F208CBE0D /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8E6D09AB13C9D9FC0B410D /* STTService.swift */; };
-		1446B259D1F62EF1D493C3C1 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = A7249E098BFE636081036CA1 /* MLXUtilsLibrary */; };
+		FA1B2C3D4E5F60718192A3B4D /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = FA1B2C3D4E5F60718192A3B4E /* FluidAudio */; };
 		15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */ = {isa = PBXBuildFile; fileRef = E1483A254576AD113904B103 /* question-bank.md */; };
-		A1B2C3D4E5F60718192A3B4C /* voices.npz in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081920A1B2C3D4E5F6 /* voices.npz */; };
+/* voices.npz removed — FluidAudio manages voices internally */
 		15AF6B1EBF82886EB2E065C6 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43895F80B5CF97DB267E7E7E /* ModelConfig.swift */; };
 		1F5491890ABC0F0937A4DAEF /* VoicePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC9FBF03F19F2F8942ACD58E /* VoicePipeline.swift */; };
 		2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C898E312FD5FEF444E3FF535 /* PrivacyInfo.xcprivacy */; };
@@ -29,7 +29,7 @@
 		5FA842A512A7B2E1F5E99EF7 /* KokoroManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066ADFE42F9E7EFA9EF12556 /* KokoroManager.swift */; };
 		64BE5678CFC1D04E22B97665 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 5A083C1C74C722B462FD45CE /* MLXLMCommon */; };
 		65724C18853DD3C7A601F3D2 /* Category.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40BEBD9BD593024E69189095 /* Category.swift */; };
-		6CD5D7AEEBB88251E8F560B5 /* KokoroSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 3DAC92518105B0630494B3CF /* KokoroSwift */; };
+/* KokoroSwift removed — replaced by FluidAudio */
 		7157DBDAF64BC327E8655DEB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DD8789D13CE57EEBA440D2 /* AppState.swift */; };
 		71BAE78CF4850C8A4A02619C /* Answer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB777411766BFD0D14672BA0 /* Answer.swift */; };
 		767CD9AD5950A4FAC98BEEB4 /* QuestionBankParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FF8C9FFC395C89144EAA65 /* QuestionBankParser.swift */; };
@@ -117,8 +117,7 @@
 			files = (
 				8A41A674F078021032690881 /* MLXLLM in Frameworks */,
 				64BE5678CFC1D04E22B97665 /* MLXLMCommon in Frameworks */,
-				6CD5D7AEEBB88251E8F560B5 /* KokoroSwift in Frameworks */,
-				1446B259D1F62EF1D493C3C1 /* MLXUtilsLibrary in Frameworks */,
+				FA1B2C3D4E5F60718192A3B4D /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -155,8 +154,6 @@
 		54A8FB772FE88B7E37AAF85B /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				6DA9CEAEA5A5FA53FD8A447A /* kokoro-ios */,
-				E4992E371C506722A42A9E60 /* MisakiSwift */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -251,7 +248,6 @@
 			children = (
 				EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */,
 				E1483A254576AD113904B103 /* question-bank.md */,
-				D5E6F7081920A1B2C3D4E5F6 /* voices.npz */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -275,8 +271,7 @@
 			packageProductDependencies = (
 				62EACE1EF4D28E7196BCBBE2 /* MLXLLM */,
 				5A083C1C74C722B462FD45CE /* MLXLMCommon */,
-				3DAC92518105B0630494B3CF /* KokoroSwift */,
-				A7249E098BFE636081036CA1 /* MLXUtilsLibrary */,
+				FA1B2C3D4E5F60718192A3B4E /* FluidAudio */,
 			);
 			productName = Lifehug;
 			productReference = 447EF5D17ABD64C7CC73ECA6 /* Lifehug.app */;
@@ -325,10 +320,8 @@
 			mainGroup = 8A9C49F9DE7FC1BD44A0145D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				D9AA74974302551770E14070 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */,
 				2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
-				1715AE9771342A952F3B576F /* XCLocalSwiftPackageReference "LocalPackages/MisakiSwift" */,
-				B32E5DE05F786FD1A62CE958 /* XCLocalSwiftPackageReference "LocalPackages/kokoro-ios" */,
+				FA1B2C3D4E5F60718192A3B4F /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 28766C504C7B434CB9F4270E /* Products */;
@@ -349,7 +342,6 @@
 				D10E751FFEA6C7E648C077BD /* Assets.xcassets in Resources */,
 				2E5968BB8592FDD0D0B8341B /* PrivacyInfo.xcprivacy in Resources */,
 				15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */,
-				A1B2C3D4E5F60718192A3B4C /* voices.npz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -578,7 +570,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -600,7 +592,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -647,41 +639,26 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		1715AE9771342A952F3B576F /* XCLocalSwiftPackageReference "LocalPackages/MisakiSwift" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = LocalPackages/MisakiSwift;
-		};
-		B32E5DE05F786FD1A62CE958 /* XCLocalSwiftPackageReference "LocalPackages/kokoro-ios" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "LocalPackages/kokoro-ios";
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.30.0;
+				kind = branch;
+				branch = main;
 			};
 		};
-		D9AA74974302551770E14070 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */ = {
+		FA1B2C3D4E5F60718192A3B4F /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mlalma/MLXUtilsLibrary.git";
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.0.6;
+				version = 0.12.5;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3DAC92518105B0630494B3CF /* KokoroSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = KokoroSwift;
-		};
 		5A083C1C74C722B462FD45CE /* MLXLMCommon */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
@@ -692,10 +669,10 @@
 			package = 2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLLM;
 		};
-		A7249E098BFE636081036CA1 /* MLXUtilsLibrary */ = {
+		FA1B2C3D4E5F60718192A3B4E /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = D9AA74974302551770E14070 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */;
-			productName = MLXUtilsLibrary;
+			package = FA1B2C3D4E5F60718192A3B4F /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
