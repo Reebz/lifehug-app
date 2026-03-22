@@ -223,9 +223,9 @@ struct SettingsView: View {
                 .listRowBackground(Color.white)
             }
 
-            if kokoroManager.phase == .loading {
+            if kokoroManager.phase == .compiling || kokoroManager.phase == .loading {
                 HStack {
-                    Text("Loading voice model...")
+                    Text(kokoroManager.statusMessage ?? "Loading voice model...")
                         .foregroundStyle(Theme.walnut)
                     Spacer()
                     ProgressView()
@@ -319,23 +319,19 @@ struct SettingsView: View {
         return curated.isEmpty ? Array(available.prefix(6)) : curated
     }
 
+    /// Format voice ID (e.g., "af_heart") into a display name ("Heart — US Female").
     private func voiceDisplayName(_ voiceID: String) -> String {
         let parts = voiceID.split(separator: "_")
-        guard parts.count >= 2 else { return voiceID }
-        let prefix = String(parts[0])
+        guard parts.count >= 2 else { return voiceID.capitalized }
+        let prefix = String(parts[0])  // "af", "am", "bf", "bm"
         let name = String(parts[1]).capitalized
 
-        let gender: String
-        if prefix.hasPrefix("a") { gender = "Female" }
-        else if prefix.hasPrefix("b") { gender = "Male" }
-        else { gender = "" }
-
+        // Second character: f = female, m = male
+        let gender = prefix.hasSuffix("f") ? "Female" : "Male"
+        // First character: a = American, b = British
         let accent = prefix.hasPrefix("a") ? "US" : "UK"
 
-        if gender.isEmpty {
-            return "\(name) (\(accent))"
-        }
-        return "\(name) (\(accent) \(gender))"
+        return "\(name) — \(accent) \(gender)"
     }
 
     // MARK: - Voice Section

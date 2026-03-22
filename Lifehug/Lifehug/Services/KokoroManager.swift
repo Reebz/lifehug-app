@@ -67,7 +67,15 @@ final class KokoroManager {
     }
 
     static var selectedVoice: String {
-        get { UserDefaults.standard.string(forKey: "kokoro_selected_voice") ?? TtsConstants.recommendedVoice }
+        get {
+            let stored = UserDefaults.standard.string(forKey: "kokoro_selected_voice") ?? TtsConstants.recommendedVoice
+            // Validate against known voices — corrupted values (e.g., "bella" without
+            // the "af_" prefix) cause FluidAudio download failures.
+            if TtsConstants.availableVoices.contains(stored) {
+                return stored
+            }
+            return TtsConstants.recommendedVoice
+        }
         set { UserDefaults.standard.set(newValue, forKey: "kokoro_selected_voice") }
     }
 
@@ -151,6 +159,7 @@ final class KokoroManager {
 
         isLoading = true
         phase = .loading
+        errorMessage = nil
         statusMessage = "Loading voice engine..."
 
         do {
@@ -193,7 +202,9 @@ final class KokoroManager {
             try? FileManager.default.removeItem(at: cacheDir)
         }
         Self.isEnabled = false
+        Self.selectedVoice = TtsConstants.recommendedVoice  // Reset to af_heart
         phase = .idle
+        errorMessage = nil
         logger.info("Kokoro model cache deleted")
     }
 
@@ -279,10 +290,10 @@ final class KokoroManager {
     // MARK: - Voice Management
 
     private func populateVoiceNames() {
-        // Filter to American English voices only (af_* and am_*)
+        // Keep full voice IDs (af_heart, am_adam, etc.) — FluidAudio needs them
+        // for voice embedding downloads. Stripping the prefix causes 404 errors.
         cachedVoiceNames = TtsConstants.availableVoices
             .filter { $0.hasPrefix("af_") || $0.hasPrefix("am_") }
-            .map { String($0.dropFirst(3)) }  // Strip prefix for display
             .sorted()
     }
 
