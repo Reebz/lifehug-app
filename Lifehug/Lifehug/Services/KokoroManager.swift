@@ -201,11 +201,33 @@ final class KokoroManager {
         if let cacheDir = try? TtsModels.cacheDirectoryURL() {
             try? FileManager.default.removeItem(at: cacheDir)
         }
+        // Clean up legacy MLX model files (Application Support/kokoro/)
+        // from pre-FluidAudio builds. The ~697MB safetensors file persists
+        // on devices that had the MLX version installed.
+        cleanupLegacyMLXFiles()
         Self.isEnabled = false
         Self.selectedVoice = TtsConstants.recommendedVoice  // Reset to af_heart
         phase = .idle
         errorMessage = nil
         logger.info("Kokoro model cache deleted")
+    }
+
+    /// Auto-clean legacy files on first launch after migration. Safe to call multiple times.
+    func cleanupLegacyFilesIfNeeded() {
+        cleanupLegacyMLXFiles()
+    }
+
+    /// Remove legacy MLX Kokoro model files from Application Support/kokoro/.
+    /// These are from the pre-FluidAudio build and are no longer needed.
+    private func cleanupLegacyMLXFiles() {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else { return }
+        let legacyDir = appSupport.appendingPathComponent("kokoro", isDirectory: true)
+        if FileManager.default.fileExists(atPath: legacyDir.path) {
+            try? FileManager.default.removeItem(at: legacyDir)
+            logger.info("Removed legacy MLX kokoro directory (\(legacyDir.path))")
+        }
     }
 
     // MARK: - Synthesis & Playback
