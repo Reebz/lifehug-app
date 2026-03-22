@@ -214,7 +214,8 @@ final class KokoroManager {
         let audioData = try await unsafeManager.synthesize(
             text: text,
             voice: voice,
-            voiceSpeed: 1.1,
+            voiceSpeed: 1.0,
+            variantPreference: .fifteenSecond,
             deEss: true
         )
 

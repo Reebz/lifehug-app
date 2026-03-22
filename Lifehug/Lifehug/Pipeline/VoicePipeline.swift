@@ -256,12 +256,25 @@ final class VoicePipeline {
 
                 self.logger.info("LLM complete: \(sentences.count) sentences")
 
-                // Phase 2: Speak sentences sequentially
+                // Phase 2: Speak sentences in batches of 2-3 for better prosody.
+                // Kokoro TTS needs multi-sentence context for natural intonation.
+                var batch = ""
+                var batchCount = 0
                 for sentence in sentences {
                     guard !Task.isCancelled else { break }
+                    batch += (batch.isEmpty ? "" : " ") + sentence
+                    batchCount += 1
+                    if batchCount >= 3 {
+                        state = .speaking
+                        await ttsService.speak(batch)
+                        guard !Task.isCancelled else { break }
+                        batch = ""
+                        batchCount = 0
+                    }
+                }
+                if !batch.isEmpty && !Task.isCancelled {
                     state = .speaking
-                    await ttsService.speak(sentence)
-                    guard !Task.isCancelled else { break }
+                    await ttsService.speak(batch)
                 }
 
                 onResponseGenerated?(fullResponse)

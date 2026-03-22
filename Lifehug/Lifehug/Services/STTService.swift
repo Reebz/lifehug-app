@@ -111,7 +111,7 @@ final class STTService {
             continuation.onTermination = { @Sendable _ in
                 Task { @MainActor in
                     self.shouldKeepListening = false
-                    self.stopListening()
+                    self.stopListening(reason: "stream onTermination")
                 }
             }
         }
@@ -130,7 +130,8 @@ final class STTService {
         #endif
     }
 
-    func stopListening() {
+    func stopListening(reason: String = "unknown") {
+        logger.info("stopListening called — reason: \(reason), isRecording: \(self.isRecording)")
         // Invalidate any in-flight callback Tasks (prevents stale chainRecognitionRequest)
         taskGeneration += 1
 
@@ -237,38 +238,42 @@ final class STTService {
             guard let self, self.isRecording, !Task.isCancelled else { return }
             self.logger.info("Silence timeout (\(timeout)s) — auto-stopping")
             self.continuation?.finish()
-            self.stopListening()
+            self.stopListening(reason: "silence timeout \(timeout)s")
         }
     }
 
     /// Chains a new recognition request after the previous one timed out (~60s).
     /// The audio engine and tap keep running; only the request/task are replaced.
     private func chainRecognitionRequest() {
-        logger.info("Chaining new recognition request (60s limit reached)")
+        logger.info("Chaining: creating new recognition request")
 
         guard let recognizer, recognizer.isAvailable else {
-            logger.error("Recognizer unavailable during chain — stopping")
+            logger.error("Chaining: recognizer unavailable — stopping")
             continuation?.finish()
-            stopListening()
+            stopListening(reason: "recognizer unavailable during chain")
             return
         }
 
         // 1. Create new request FIRST
         let newRequest = createRecognitionRequest()
+        logger.info("Chaining: new request created")
 
         // 2. Swap sharedRequest — tap immediately feeds new request (no gap)
         let oldRequest = self.recognitionRequest
         let oldTask = self.recognitionTask
         self.recognitionRequest = newRequest
         self.sharedRequest = newRequest
+        logger.info("Chaining: swapped to new request")
 
         // 3. NOW tear down old request/task
         oldRequest?.endAudio()
         oldTask?.cancel()
+        logger.info("Chaining: old request torn down")
 
         // 4. Install new recognition task
         taskGeneration += 1
         installRecognitionTask(for: newRequest)
+        logger.info("Chaining: new recognition task installed, generation=\(self.taskGeneration)")
     }
 
     /// Installs the recognition task callback for the given request.
@@ -309,12 +314,13 @@ final class STTService {
                     self.resetSilenceTimer()
 
                     if isFinal {
+                        self.logger.info("isFinal result — shouldKeepListening=\(self.shouldKeepListening), transcript length=\(fullTranscript.count)")
                         if self.shouldKeepListening {
                             // 60s limit reached with a final result — chain a new request
                             self.chainRecognitionRequest()
                         } else {
                             self.continuation?.finish()
-                            self.stopListening()
+                            self.stopListening(reason: "isFinal with shouldKeepListening=false")
                         }
                     }
                 }
@@ -346,14 +352,14 @@ final class STTService {
                         self.logger.info("60s timeout — chaining new recognition request")
                         self.chainRecognitionRequest()
                     } else {
-                        self.logger.error("Recognition error: \(error)")
+                        self.logger.error("Recognition error: domain=\(nsError.domain), code=\(nsError.code), desc=\(nsError.localizedDescription)")
                         if !currentFull.isEmpty {
                             self.accumulatedTranscript = currentFull
                             self.partialTranscript = currentFull
                             self.continuation?.yield(currentFull)
                         }
                         self.continuation?.finish()
-                        self.stopListening()
+                        self.stopListening(reason: "recognition error: \(nsError.domain) \(nsError.code)")
                     }
                 }
             }

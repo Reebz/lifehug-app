@@ -20,7 +20,7 @@ final class LLMService {
         temperature: 0.7,
         topP: 0.9
     )
-    private let maxTokens = 200
+    private let maxTokens = 500
 
     // MARK: - Model Loading
 
