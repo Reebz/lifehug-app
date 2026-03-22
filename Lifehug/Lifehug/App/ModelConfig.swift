@@ -50,6 +50,43 @@ enum ModelConfig {
                 }
                 return "\(diskSizeMB) MB download"
             }
+
+            /// Minimum RAM in bytes to run this model (with Kokoro TTS alongside).
+            var minimumRAM: UInt64 {
+                switch self {
+                case .llama1B: 4_000_000_000   // 4 GB — runs on anything
+                case .smollm3B: 6_000_000_000  // 6 GB — needs iPhone 15+
+                case .llama3B: 8_000_000_000   // 8 GB — needs iPhone 15 Pro+
+                }
+            }
+
+            /// Recommended minimum RAM — below this the model runs but may be tight.
+            var recommendedRAM: UInt64 {
+                switch self {
+                case .llama1B: 4_000_000_000
+                case .smollm3B: 7_000_000_000  // Tight on 6 GB
+                case .llama3B: 8_000_000_000
+                }
+            }
+
+            /// Device fitness for this model.
+            enum Fitness { case good, caution, incompatible }
+
+            var deviceFitness: Fitness {
+                let ram = ProcessInfo.processInfo.physicalMemory
+                if ram < minimumRAM { return .incompatible }
+                if ram < recommendedRAM { return .caution }
+                return .good
+            }
+
+            /// Short label for the download button (e.g., "Fast", "Balanced", "Quality").
+            var shortLabel: String {
+                switch self {
+                case .llama1B: "Fast"
+                case .smollm3B: "Balanced"
+                case .llama3B: "Quality"
+                }
+            }
         }
 
         /// The user's selected model, persisted to UserDefaults.

@@ -49,18 +49,33 @@ final class ModelDownloader {
 
     // MARK: - Public API
 
-    /// Whether the model files exist on disk (quick check, does not verify integrity).
+    /// Whether the SELECTED model's files exist on disk.
     var isModelCached: Bool {
-        // HubApi stores downloads in {downloadBase}/huggingface/hub/models--{org}--{model}/
-        // Check specifically for the SELECTED model, not just any model.
+        cachedModelOption != nil && cachedModelOption == ModelConfig.LLM.selectedModel
+    }
+
+    /// Whether ANY model is cached on disk. Returns true even if the cached model
+    /// differs from the selected one — used to skip the onboarding picker for returning users.
+    var isAnyModelCached: Bool {
+        cachedModelOption != nil
+    }
+
+    /// Which ModelOption is currently cached on disk, if any.
+    /// Auto-syncs the selection to match whatever is actually on disk.
+    var cachedModelOption: ModelConfig.LLM.ModelOption? {
         let hubDir = storage.modelsDirectory
             .appendingPathComponent("huggingface")
             .appendingPathComponent("hub")
         let fm = FileManager.default
-        guard fm.fileExists(atPath: hubDir.path) else { return false }
-        let expectedDir = "models--" + Self.modelID.replacingOccurrences(of: "/", with: "--")
+        guard fm.fileExists(atPath: hubDir.path) else { return nil }
         let contents = (try? fm.contentsOfDirectory(atPath: hubDir.path)) ?? []
-        return contents.contains { $0 == expectedDir }
+        for option in ModelConfig.LLM.ModelOption.allCases {
+            let expectedDir = "models--" + option.huggingFaceID.replacingOccurrences(of: "/", with: "--")
+            if contents.contains(where: { $0 == expectedDir }) {
+                return option
+            }
+        }
+        return nil
     }
 
     /// Start (or resume) the model download. Safe to call multiple times.

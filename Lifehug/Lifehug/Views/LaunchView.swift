@@ -88,7 +88,9 @@ struct LaunchView: View {
                             isSelected: selectedModel == option,
                             isRecommended: option == ModelConfig.LLM.recommendedModel
                         )
+                        .opacity(option.deviceFitness == .incompatible ? 0.4 : 1.0)
                         .onTapGesture {
+                            guard option.deviceFitness != .incompatible else { return }
                             withAnimation(.easeOut(duration: 0.2)) {
                                 selectedModel = option
                             }
@@ -105,7 +107,7 @@ struct LaunchView: View {
                 )
             }
 
-            // Download button
+            // Download button — simplified label
             Button {
                 ModelConfig.LLM.selectedModel = selectedModel
                 modelState.triggerDownload()
@@ -113,16 +115,22 @@ struct LaunchView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.title3)
-                    Text("Download \(selectedModel.displayName)")
+                    Text("Download — \(selectedModel.shortLabel)")
                         .font(.headline)
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(Theme.terracotta, in: RoundedRectangle(cornerRadius: Theme.buttonCornerRadius, style: .continuous))
+                .background(
+                    selectedModel.deviceFitness == .incompatible
+                        ? Theme.softGray
+                        : Theme.terracotta,
+                    in: RoundedRectangle(cornerRadius: Theme.buttonCornerRadius, style: .continuous)
+                )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Download \(selectedModel.displayName), \(selectedModel.downloadSizeLabel)")
+            .disabled(selectedModel.deviceFitness == .incompatible)
+            .accessibilityLabel("Download \(selectedModel.shortLabel) model, \(selectedModel.downloadSizeLabel)")
 
             // Change model link
             if !showModelPicker {
@@ -271,20 +279,25 @@ private struct ModelPickerCard: View {
     let isSelected: Bool
     let isRecommended: Bool
 
+    private var fitness: ModelConfig.LLM.ModelOption.Fitness { option.deviceFitness }
+
     var body: some View {
         HStack(spacing: 12) {
-            // Radio button
+            // Radio button — greyed out if incompatible
             Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                 .font(.title3)
-                .foregroundStyle(isSelected ? Theme.terracotta : Theme.softGray)
+                .foregroundStyle(
+                    fitness == .incompatible ? Theme.softGray.opacity(0.5) :
+                    isSelected ? Theme.terracotta : Theme.softGray
+                )
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(option.displayName)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.warmCharcoal)
+                        .foregroundStyle(fitness == .incompatible ? Theme.softGray : Theme.warmCharcoal)
 
-                    if isRecommended {
+                    if isRecommended && fitness != .incompatible {
                         Text("Recommended")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
@@ -292,11 +305,28 @@ private struct ModelPickerCard: View {
                             .padding(.vertical, 2)
                             .background(Theme.sageGreen, in: Capsule())
                     }
+
+                    if fitness == .caution {
+                        Text("Caution")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.mutedRose, in: Capsule())
+                    }
+
+                    if fitness == .incompatible {
+                        Text("Too large for this device")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.softGray)
+                    }
                 }
 
-                Text(option.description)
-                    .font(.caption)
-                    .foregroundStyle(Theme.walnut)
+                if fitness != .incompatible {
+                    Text(option.description)
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
 
                 Text(option.downloadSizeLabel)
                     .font(.caption2)
