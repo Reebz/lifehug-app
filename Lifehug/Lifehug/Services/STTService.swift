@@ -313,15 +313,17 @@ final class STTService {
                     self.continuation?.yield(fullTranscript)
                     self.resetSilenceTimer()
 
-                    if isFinal {
-                        self.logger.info("isFinal result — shouldKeepListening=\(self.shouldKeepListening), transcript length=\(fullTranscript.count)")
-                        if self.shouldKeepListening {
-                            // 60s limit reached with a final result — chain a new request
-                            self.chainRecognitionRequest()
-                        } else {
-                            self.continuation?.finish()
-                            self.stopListening(reason: "isFinal with shouldKeepListening=false")
-                        }
+                    if isFinal && !self.shouldKeepListening {
+                        // User explicitly stopped (tap, termination phrase, etc.)
+                        self.logger.info("isFinal with shouldKeepListening=false — stopping, transcript length=\(fullTranscript.count)")
+                        self.continuation?.finish()
+                        self.stopListening(reason: "isFinal with shouldKeepListening=false")
+                    } else if isFinal {
+                        // Apple's VAD sent isFinal during active recording (natural pause).
+                        // Do NOT chain — chaining creates a gap that loses audio.
+                        // The recognition task is done, but the error callback (code 1110)
+                        // will fire next and handle chaining properly.
+                        self.logger.info("isFinal during active recording — waiting for error callback to chain, transcript length=\(fullTranscript.count)")
                     }
                 }
             }
