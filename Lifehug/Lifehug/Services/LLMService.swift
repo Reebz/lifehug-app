@@ -14,7 +14,8 @@ final class LLMService {
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
 
-    private static let modelID = ModelConfig.LLM.modelID
+    /// Dynamic — reads the currently selected model. Must NOT be `let` (would go stale after model switch).
+    private static var modelID: String { ModelConfig.LLM.modelID }
 
     private let generateParameters = GenerateParameters(
         temperature: 0.7,

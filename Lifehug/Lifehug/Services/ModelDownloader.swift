@@ -10,7 +10,8 @@ import os
 final class ModelDownloader {
     // MARK: - Configuration
 
-    static let modelID = ModelConfig.LLM.modelID
+    /// Dynamic — reads the currently selected model. Do NOT capture as `let`.
+    static var modelID: String { ModelConfig.LLM.modelID }
 
     // MARK: - Observable State
 
@@ -51,14 +52,15 @@ final class ModelDownloader {
     /// Whether the model files exist on disk (quick check, does not verify integrity).
     var isModelCached: Bool {
         // HubApi stores downloads in {downloadBase}/huggingface/hub/models--{org}--{model}/
+        // Check specifically for the SELECTED model, not just any model.
         let hubDir = storage.modelsDirectory
             .appendingPathComponent("huggingface")
             .appendingPathComponent("hub")
         let fm = FileManager.default
         guard fm.fileExists(atPath: hubDir.path) else { return false }
-        // Check if there's at least one model directory inside
+        let expectedDir = "models--" + Self.modelID.replacingOccurrences(of: "/", with: "--")
         let contents = (try? fm.contentsOfDirectory(atPath: hubDir.path)) ?? []
-        return contents.contains { $0.hasPrefix("models--") }
+        return contents.contains { $0 == expectedDir }
     }
 
     /// Start (or resume) the model download. Safe to call multiple times.
@@ -142,8 +144,8 @@ final class ModelDownloader {
             throw DownloadError.noNetwork
         }
 
-        // Disk space check (need ~1 GB for the 1B-4bit model)
-        try checkDiskSpace(requiredMB: 1024)
+        // Disk space check — size varies by selected model
+        try checkDiskSpace(requiredMB: ModelConfig.LLM.selectedModel.diskSizeMB)
 
         let configuration = ModelConfiguration(
             id: Self.modelID

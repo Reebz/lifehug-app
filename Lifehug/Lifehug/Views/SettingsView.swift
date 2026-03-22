@@ -46,14 +46,14 @@ struct SettingsView: View {
                 computeStorageSizes()
             }
             .confirmationDialog(
-                "Delete Model Cache",
+                "Change AI Model",
                 isPresented: $showDeleteModelConfirmation,
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) { deleteModelCache() }
+                Button("Change Model", role: .destructive) { changeModel() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This will remove the downloaded model. You will need to re-download it to continue using Lifehug.")
+                Text("This will delete \(ModelConfig.LLM.selectedModel.displayName) and take you back to the model picker. You'll need to download a new model.")
             }
             .confirmationDialog(
                 "Reset Lifehug",
@@ -364,6 +364,15 @@ struct SettingsView: View {
     private var modelSection: some View {
         Section {
             HStack {
+                Text("AI Model")
+                    .foregroundStyle(Theme.warmCharcoal)
+                Spacer()
+                Text(ModelConfig.LLM.selectedModel.displayName)
+                    .foregroundStyle(Theme.walnut)
+            }
+            .listRowBackground(Color.white)
+
+            HStack {
                 Text("Model Status")
                     .foregroundStyle(Theme.warmCharcoal)
                 Spacer()
@@ -407,10 +416,10 @@ struct SettingsView: View {
                 showDeleteModelConfirmation = true
             } label: {
                 HStack {
-                    Image(systemName: "trash")
-                    Text("Delete Model Cache")
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("Change AI Model")
                 }
-                .foregroundStyle(Theme.mutedRose)
+                .foregroundStyle(Theme.terracotta)
             }
             .listRowBackground(Color.white)
         } header: {
@@ -552,6 +561,13 @@ struct SettingsView: View {
     private func deleteModelCache() {
         modelState.deleteModelCache()
         computeStorageSizes()
+    }
+
+    private func changeModel() {
+        modelState.deleteModelCache()
+        computeStorageSizes()
+        // Navigate back to LaunchView to show the model picker
+        appState.activeScreen = .launch
     }
 
     private func exportAnswers() {

@@ -4,6 +4,9 @@ struct LaunchView: View {
     @Environment(ModelState.self) private var modelState
     @Environment(AppState.self) private var appState
 
+    @State private var selectedModel: ModelConfig.LLM.ModelOption = ModelConfig.LLM.recommendedModel
+    @State private var showModelPicker = false
+
     var body: some View {
         ZStack {
             Theme.cream
@@ -66,23 +69,51 @@ struct LaunchView: View {
         }
     }
 
-    // MARK: - Not Downloaded
+    // MARK: - Model Selection + Download
 
     private var needsDownloadView: some View {
         VStack(spacing: 20) {
-            Text("Lifehug runs entirely on your device.\nA one-time download is needed.")
+            Text("Lifehug runs entirely on your device.\nChoose an AI model to download.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.walnut)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
 
+            if showModelPicker {
+                // Expanded picker — three model cards
+                VStack(spacing: 12) {
+                    ForEach(ModelConfig.LLM.ModelOption.allCases, id: \.self) { option in
+                        ModelPickerCard(
+                            option: option,
+                            isSelected: selectedModel == option,
+                            isRecommended: option == ModelConfig.LLM.recommendedModel
+                        )
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                selectedModel = option
+                            }
+                        }
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                // Collapsed — show recommended model card only
+                ModelPickerCard(
+                    option: selectedModel,
+                    isSelected: true,
+                    isRecommended: true
+                )
+            }
+
+            // Download button
             Button {
+                ModelConfig.LLM.selectedModel = selectedModel
                 modelState.triggerDownload()
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.title3)
-                    Text("Download Model")
+                    Text("Download \(selectedModel.displayName)")
                         .font(.headline)
                 }
                 .foregroundStyle(.white)
@@ -91,11 +122,20 @@ struct LaunchView: View {
                 .background(Theme.terracotta, in: RoundedRectangle(cornerRadius: Theme.buttonCornerRadius, style: .continuous))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Download AI model, approximately 700 megabytes")
+            .accessibilityLabel("Download \(selectedModel.displayName), \(selectedModel.downloadSizeLabel)")
 
-            Text("~700 MB over Wi-Fi")
-                .font(.caption)
-                .foregroundStyle(Theme.softGray)
+            // Change model link
+            if !showModelPicker {
+                Button {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        showModelPicker = true
+                    }
+                } label: {
+                    Text("Change model")
+                        .font(.caption)
+                        .foregroundStyle(Theme.terracotta)
+                }
+            }
         }
     }
 
@@ -124,7 +164,7 @@ struct LaunchView: View {
                 }
             }
 
-            Text("Downloading model...")
+            Text("Downloading \(ModelConfig.LLM.selectedModel.displayName)...")
                 .font(.subheadline)
                 .foregroundStyle(Theme.walnut)
         }
@@ -209,7 +249,71 @@ struct LaunchView: View {
                 .background(Theme.terracotta, in: RoundedRectangle(cornerRadius: Theme.buttonCornerRadius, style: .continuous))
             }
             .buttonStyle(.plain)
+
+            Button {
+                // Return to model picker to choose a different model
+                ModelConfig.LLM.clearSelection()
+                modelState.deleteModelCache()
+                showModelPicker = true
+            } label: {
+                Text("Choose a different model")
+                    .font(.caption)
+                    .foregroundStyle(Theme.terracotta)
+            }
         }
+    }
+}
+
+// MARK: - Model Picker Card
+
+private struct ModelPickerCard: View {
+    let option: ModelConfig.LLM.ModelOption
+    let isSelected: Bool
+    let isRecommended: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Radio button
+            Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                .font(.title3)
+                .foregroundStyle(isSelected ? Theme.terracotta : Theme.softGray)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(option.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.warmCharcoal)
+
+                    if isRecommended {
+                        Text("Recommended")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.sageGreen, in: Capsule())
+                    }
+                }
+
+                Text(option.description)
+                    .font(.caption)
+                    .foregroundStyle(Theme.walnut)
+
+                Text(option.downloadSizeLabel)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.softGray)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected ? Theme.terracotta.opacity(0.06) : Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Theme.terracotta.opacity(0.3) : Theme.softGray.opacity(0.3), lineWidth: 1)
+        )
     }
 }
 

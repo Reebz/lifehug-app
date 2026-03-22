@@ -73,6 +73,7 @@ final class ModelState {
     /// Delete cached model files and reset to not-downloaded state.
     func deleteModelCache() {
         downloader.deleteCache()
+        ModelConfig.LLM.clearSelection()  // Reset so model picker re-appears
         syncFromDownloader()
     }
 
