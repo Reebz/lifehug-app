@@ -1,9 +1,11 @@
 import Foundation
 import AVFoundation
-import FluidAudio
+import WhisperKit
 import os
 
-/// On-device speech-to-text using FluidAudio's Parakeet EOU streaming ASR.
+/// On-device speech-to-text using WhisperKit (OpenAI Whisper via CoreML).
+/// Accumulates audio from the microphone tap, transcribes periodically (~3s)
+/// for live partial results, and does a final full-buffer transcription on stop.
 @Observable
 @MainActor
 final class STTService {
@@ -11,34 +13,42 @@ final class STTService {
     var isRecording: Bool = false
     var partialTranscript: String = ""
     var error: String?
-    var isASRReady: Bool { asrManager != nil }
+    var isASRReady: Bool { whisperPipe != nil }
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "STT")
 
-    nonisolated(unsafe) private var asrManager: StreamingEouAsrManager?
+    /// WhisperKit pipeline — created once at launch, persists across sessions.
+    private var whisperPipe: WhisperKit?
 
     private var audioEngine: AVAudioEngine?
     private var continuation: AsyncStream<String>.Continuation?
     private var setupTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
+
+    /// Accumulated 16kHz mono audio samples for the current recording session.
+    /// Written from the audio tap (via MainActor dispatch), read by the transcription task.
+    private var audioSamples: [Float] = []
 
     init() {}
 
     // MARK: - Model Loading
 
     func loadASRModel() async {
-        guard asrManager == nil else { return }
+        guard whisperPipe == nil else { return }
         do {
-            print("[STT] Loading FluidAudio ASR model...")
-            logger.fault("[STT] Loading FluidAudio ASR model...")
-            let manager = StreamingEouAsrManager(chunkSize: .ms320, eouDebounceMs: 1280)
-            try await manager.loadModelsFromHuggingFace()
-            self.asrManager = manager
-            print("[STT] ✅ ASR model loaded successfully")
-            logger.fault("[STT] ✅ ASR model loaded successfully")
+            print("[STT] Loading WhisperKit small.en model...")
+            let pipe = try await WhisperKit(WhisperKitConfig(
+                model: "small.en",
+                verbose: false,
+                prewarm: true,
+                load: true,
+                download: true
+            ))
+            self.whisperPipe = pipe
+            print("[STT] ✅ WhisperKit loaded successfully")
         } catch {
-            print("[STT] ❌ Failed to load ASR model: \(error)")
-            logger.fault("[STT] ❌ Failed to load ASR model: \(error)")
-            self.error = "Voice recognition model failed to download. Check your connection and restart."
+            print("[STT] ❌ WhisperKit load failed: \(error)")
+            self.error = "Voice recognition failed to load. Please restart."
         }
     }
 
@@ -59,7 +69,6 @@ final class STTService {
         if !micGranted {
             error = "Microphone access not authorized. Please enable in Settings."
         }
-        print("[STT] Mic authorized: \(micGranted)")
         #endif
     }
 
@@ -88,7 +97,7 @@ final class STTService {
         }
         #else
         self.error = nil
-        print("[STT] startListening() called, asrManager=\(asrManager != nil)")
+        print("[STT] startListening() — whisperPipe=\(whisperPipe != nil)")
 
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
@@ -116,31 +125,41 @@ final class STTService {
 
         setupTask?.cancel()
         setupTask = nil
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
         isRecording = false
 
+        // Stop audio capture
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        let manager = asrManager
+        // Final transcription of complete audio buffer
+        let samples = audioSamples
+        nonisolated(unsafe) let pipe = whisperPipe
         let cont = continuation
         continuation = nil
+        audioSamples = []
+
         Task {
             do {
-                let finalText = try await manager?.finish()
-                print("[STT] finish() returned: '\(finalText ?? "nil")' (\(finalText?.count ?? 0) chars)")
-                await MainActor.run {
-                    if let finalText, !finalText.isEmpty {
-                        self.partialTranscript = finalText
-                        cont?.yield(finalText)
+                if !samples.isEmpty, let pipe {
+                    print("[STT] Final transcription: \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
+                    let results = try await pipe.transcribe(audioArray: samples)
+                    let text = results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    print("[STT] Final result: '\(text.prefix(80))...' (\(text.count) chars)")
+                    await MainActor.run {
+                        if !text.isEmpty {
+                            self.partialTranscript = text
+                            cont?.yield(text)
+                        }
                     }
-                    cont?.finish()
                 }
             } catch {
-                print("[STT] ❌ finish() failed: \(error)")
-                await MainActor.run {
-                    cont?.finish()
-                }
+                print("[STT] ❌ Final transcription failed: \(error)")
+            }
+            await MainActor.run {
+                cont?.finish()
             }
         }
     }
@@ -148,24 +167,18 @@ final class STTService {
     // MARK: - Private: Async Recognition Setup
 
     private func startRecognitionAsync() async {
-        guard !Task.isCancelled else {
-            print("[STT] Setup cancelled before starting")
-            return
-        }
+        guard !Task.isCancelled else { return }
 
-        print("[STT] startRecognitionAsync — asrManager=\(asrManager != nil)")
-
-        guard let manager = asrManager else {
-            print("[STT] ❌ ASR model not loaded — attempting retry")
+        // Ensure WhisperKit is loaded
+        if whisperPipe == nil {
+            print("[STT] WhisperKit not loaded — attempting load")
             await loadASRModel()
-            guard asrManager != nil else {
-                print("[STT] ❌ Retry failed — ASR still nil")
-                error = "Voice recognition not available. Please restart the app."
+            guard whisperPipe != nil else {
+                print("[STT] ❌ WhisperKit still nil after retry")
+                error = "Voice recognition not available. Please restart."
                 continuation?.finish()
                 return
             }
-            await startRecognitionAsync()
-            return
         }
 
         do {
@@ -180,53 +193,39 @@ final class STTService {
                 ])
             }
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            print("[STT] Audio session active, category=\(audioSession.category.rawValue)")
 
+            // Clean up prior state
             audioEngine?.stop()
             audioEngine?.inputNode.removeTap(onBus: 0)
+            audioSamples = []
 
-            // 1. Reset ASR state FIRST
-            await manager.reset()
-            print("[STT] ASR manager reset complete")
-
-            // 2. Wire callbacks BEFORE audio starts
-            await manager.setPartialCallback { [weak self] text in
-                print("[STT] 📝 Partial callback fired: '\(text.prefix(50))...' (\(text.count) chars)")
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.partialTranscript = text
-                    self.continuation?.yield(text)
-                }
-            }
-            await manager.setEouCallback { text in
-                print("[STT] 🔚 EOU callback fired: \(text.count) chars")
-            }
-            print("[STT] Callbacks wired")
-
-            // 3. NOW start the audio engine and tap
             let engine = AVAudioEngine()
             self.audioEngine = engine
 
+            // Install tap at 16kHz mono — AVAudioEngine resamples from hardware rate automatically.
+            // WhisperKit requires 16kHz mono Float32 samples.
             let inputNode = engine.inputNode
-            let inputFormat = inputNode.outputFormat(forBus: 0)
-            print("[STT] Input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch, \(inputFormat.commonFormat.rawValue)")
+            guard let format16kHz = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1) else {
+                throw STTError.microphoneUnavailable
+            }
 
-            nonisolated(unsafe) let unsafeManager = manager
-            nonisolated(unsafe) var bufferCount = 0
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { @Sendable buffer, _ in
-                bufferCount += 1
-                let box = SendableBuffer(buffer)
-                Task { try? await unsafeManager.process(audioBuffer: box.buffer) }
-                // Log every ~5 seconds
-                if bufferCount % 235 == 0 {
-                    print("[STT] 🎤 Audio tap alive: \(bufferCount) buffers fed to ASR")
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: format16kHz) { [weak self] buffer, _ in
+                guard let channelData = buffer.floatChannelData else { return }
+                let frameCount = Int(buffer.frameLength)
+                let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+                // Dispatch to MainActor for thread-safe append
+                Task { @MainActor [weak self] in
+                    self?.audioSamples.append(contentsOf: samples)
                 }
             }
 
             engine.prepare()
             try engine.start()
             isRecording = true
-            print("[STT] ✅ Recording started — engine running, tap installed")
+            print("[STT] ✅ Recording started — WhisperKit, 16kHz tap installed")
+
+            // Start periodic transcription task (~every 3 seconds)
+            startPeriodicTranscription()
 
         } catch {
             print("[STT] ❌ startRecognitionAsync failed: \(error)")
@@ -234,14 +233,35 @@ final class STTService {
             continuation?.finish()
         }
     }
-}
 
-// MARK: - Sendable Buffer Wrapper
+    /// Periodically transcribes accumulated audio for live partial results.
+    private func startPeriodicTranscription() {
+        transcriptionTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { break }
+                guard let self else { continue }
+                guard let pipe = self.whisperPipe else { continue }
+                nonisolated(unsafe) let unsafePipe = pipe
 
-private struct SendableBuffer: @unchecked Sendable {
-    let buffer: AVAudioPCMBuffer
-    init(_ buffer: AVAudioPCMBuffer) {
-        self.buffer = buffer
+                let samples = self.audioSamples
+                guard samples.count > 16000 else { continue } // Need at least 1 second of audio
+
+                do {
+                    let results = try await unsafePipe.transcribe(audioArray: samples)
+                    let text = results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !text.isEmpty {
+                        await MainActor.run {
+                            self.partialTranscript = text
+                            self.continuation?.yield(text)
+                        }
+                        print("[STT] 📝 Partial: '\(text.prefix(60))...' (\(text.count) chars)")
+                    }
+                } catch {
+                    print("[STT] Periodic transcription error: \(error)")
+                }
+            }
+        }
     }
 }
 
@@ -249,14 +269,11 @@ private struct SendableBuffer: @unchecked Sendable {
 
 enum STTError: Error, LocalizedError {
     case microphoneUnavailable
-    case asrNotLoaded
 
     var errorDescription: String? {
         switch self {
         case .microphoneUnavailable:
             return "Microphone is not available. Please check permissions in Settings."
-        case .asrNotLoaded:
-            return "Speech recognition model not loaded. Please restart the app."
         }
     }
 }

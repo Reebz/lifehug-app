@@ -11,6 +11,7 @@
 		0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2FC2AA88E660C6579714592 /* ModelState.swift */; };
 		1436E589C929D07F208CBE0D /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8E6D09AB13C9D9FC0B410D /* STTService.swift */; };
 		FA1B2C3D4E5F60718192A3B4D /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = FA1B2C3D4E5F60718192A3B4E /* FluidAudio */; };
+		WK1B2C3D4E5F60718192A3B42 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = WK1B2C3D4E5F60718192A3B41 /* WhisperKit */; };
 		15A33D9A8646CDA27CF539CE /* question-bank.md in Resources */ = {isa = PBXBuildFile; fileRef = E1483A254576AD113904B103 /* question-bank.md */; };
 /* voices.npz removed — FluidAudio manages voices internally */
 		15AF6B1EBF82886EB2E065C6 /* ModelConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43895F80B5CF97DB267E7E7E /* ModelConfig.swift */; };
@@ -118,6 +119,7 @@
 				8A41A674F078021032690881 /* MLXLLM in Frameworks */,
 				64BE5678CFC1D04E22B97665 /* MLXLMCommon in Frameworks */,
 				FA1B2C3D4E5F60718192A3B4D /* FluidAudio in Frameworks */,
+				WK1B2C3D4E5F60718192A3B42 /* WhisperKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -272,6 +274,7 @@
 				62EACE1EF4D28E7196BCBBE2 /* MLXLLM */,
 				5A083C1C74C722B462FD45CE /* MLXLMCommon */,
 				FA1B2C3D4E5F60718192A3B4E /* FluidAudio */,
+				WK1B2C3D4E5F60718192A3B41 /* WhisperKit */,
 			);
 			productName = Lifehug;
 			productReference = 447EF5D17ABD64C7CC73ECA6 /* Lifehug.app */;
@@ -322,6 +325,7 @@
 			packageReferences = (
 				2BF9432FBCF5DA0BFB8B372F /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				FA1B2C3D4E5F60718192A3B4F /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				WK1B2C3D4E5F60718192A3B40 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 28766C504C7B434CB9F4270E /* Products */;
@@ -570,7 +574,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -592,7 +596,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -656,6 +660,14 @@
 				version = 0.12.5;
 			};
 		};
+		WK1B2C3D4E5F60718192A3B40 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Reebz/WhisperKit.git";
+			requirement = {
+				kind = branch;
+				branch = main;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -673,6 +685,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FA1B2C3D4E5F60718192A3B4F /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		WK1B2C3D4E5F60718192A3B41 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = WK1B2C3D4E5F60718192A3B40 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
