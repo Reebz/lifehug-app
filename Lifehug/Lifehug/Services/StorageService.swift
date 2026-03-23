@@ -20,9 +20,11 @@ final class StorageService {
 
     static var silenceTimeout: TimeInterval {
         get {
-            let val = UserDefaults.standard.double(forKey: silenceTimeoutKey)
-            // 0 means disabled; return 0 if key not set (default = off)
-            return UserDefaults.standard.object(forKey: silenceTimeoutKey) != nil ? val : 0
+            // Distinguish "never set" (nil → default 3.0) from "explicitly set to 0" (Off)
+            guard let stored = UserDefaults.standard.object(forKey: silenceTimeoutKey) as? Double else {
+                return 3.0
+            }
+            return stored
         }
         set { UserDefaults.standard.set(newValue, forKey: silenceTimeoutKey) }
     }
@@ -31,14 +33,19 @@ final class StorageService {
 
     /// Application Support — models and state (not visible in Files app)
     var appSupportDirectory: URL {
-        let url = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let url = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fatalError("Application Support directory unavailable — iOS sandbox is broken")
+        }
         try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     /// Documents — user content (visible in Files app)
     var documentsDirectory: URL {
-        fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let url = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            fatalError("Documents directory unavailable — iOS sandbox is broken")
+        }
+        return url
     }
 
     var modelsDirectory: URL {
@@ -137,12 +144,17 @@ final class StorageService {
 
     // MARK: - Rotation State I/O
 
-    func readRotationState() throws -> RotationState {
+    func readRotationState() -> RotationState {
         guard fileManager.fileExists(atPath: rotationURL.path) else {
             return .default
         }
-        let data = try Data(contentsOf: rotationURL)
-        return try JSONDecoder().decode(RotationState.self, from: data)
+        do {
+            let data = try Data(contentsOf: rotationURL)
+            return try JSONDecoder().decode(RotationState.self, from: data)
+        } catch {
+            logger.warning("Rotation state read failed, using defaults: \(error)")
+            return .default
+        }
     }
 
     func writeRotationState(_ state: RotationState) throws {
@@ -154,12 +166,17 @@ final class StorageService {
 
     // MARK: - Config I/O
 
-    func readConfig() throws -> UserConfig {
+    func readConfig() -> UserConfig {
         guard fileManager.fileExists(atPath: configURL.path) else {
             return UserConfig()
         }
-        let data = try Data(contentsOf: configURL)
-        return try JSONDecoder().decode(UserConfig.self, from: data)
+        do {
+            let data = try Data(contentsOf: configURL)
+            return try JSONDecoder().decode(UserConfig.self, from: data)
+        } catch {
+            logger.warning("Config read failed, using defaults: \(error)")
+            return UserConfig()
+        }
     }
 
     func writeConfig(_ config: UserConfig) throws {
@@ -172,6 +189,13 @@ final class StorageService {
     // MARK: - Answer File I/O
 
     func saveAnswer(_ answer: Answer) throws {
+        // Defense-in-depth: validate questionID format before constructing file path.
+        // IDs are generated internally (e.g., "A1", "K12") but this guard prevents
+        // path traversal if a malformed ID ever reaches this code path.
+        guard answer.questionID.range(of: #"^[A-Z]\d+$"#, options: .regularExpression) != nil else {
+            logger.error("Invalid questionID format: \(answer.questionID)")
+            return
+        }
         let filename = "\(answer.questionID).md"
         let url = answersDirectory.appendingPathComponent(filename)
         let content = answer.toMarkdown()
@@ -227,14 +251,7 @@ final class StorageService {
     }
 
     private func atomicWrite(data: Data, to url: URL) throws {
-        let tempURL = url.deletingLastPathComponent()
-            .appendingPathComponent(UUID().uuidString)
-        try data.write(to: tempURL, options: [.atomic, .completeFileProtection])
-        if fileManager.fileExists(atPath: url.path) {
-            _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
-        } else {
-            try fileManager.moveItem(at: tempURL, to: url)
-        }
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
     }
 }
 

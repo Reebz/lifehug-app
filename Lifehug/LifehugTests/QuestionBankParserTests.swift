@@ -152,6 +152,32 @@ struct QuestionBankParserTests {
         #expect(coverage["K"]?.status == .red)
     }
 
+    @Test("Mark answered handles question at end of file without trailing newline")
+    func markAnsweredEndOfFile() {
+        let markdown = "- [ ] A1: First question\n- [ ] A2: Last question"
+        let result = QuestionBankParser.markAnswered(questionID: "A2", in: markdown)
+        #expect(result != nil)
+        #expect(result!.contains("- [x] A2: Last question"))
+        // Ensure A1 is NOT marked
+        #expect(result!.contains("- [ ] A1: First question"))
+    }
+
+    @Test("Mark answered only matches checkbox pattern, not answer text")
+    func markAnsweredDoesNotMatchAnswerText() {
+        // "A1" appears in answer text but should not be matched
+        let markdown = "- [x] A1: Question one *(2026-03-01)*\n- [ ] A2: This references A1 in text"
+        let result = QuestionBankParser.markAnswered(questionID: "A1", in: markdown)
+        // A1 is already answered, so no match
+        #expect(result == nil)
+    }
+
+    @Test("Parse questions rejects oversized markdown")
+    func parseQuestionsOversizedInput() {
+        let huge = String(repeating: "- [ ] A1: Question\n", count: 100_000)
+        let questions = QuestionBankParser.parseQuestions(from: huge)
+        #expect(questions.isEmpty)
+    }
+
     @Test("Coverage thresholds at boundaries")
     func coverageThresholds() {
         // red: 0-30%

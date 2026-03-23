@@ -40,19 +40,20 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.cream.ignoresSafeArea())
             .navigationTitle("Settings")
+            .modifier(LifehugBarStyle())
             .task {
                 loadSettings()
                 computeStorageSizes()
             }
             .confirmationDialog(
-                "Delete Model Cache",
+                "Change AI Model",
                 isPresented: $showDeleteModelConfirmation,
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) { deleteModelCache() }
+                Button("Change Model", role: .destructive) { changeModel() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This will remove the downloaded model. You will need to re-download it to continue using Lifehug.")
+                Text("This will delete \(ModelConfig.LLM.selectedModel.displayName) and take you back to the model picker. You'll need to download a new model.")
             }
             .confirmationDialog(
                 "Reset Lifehug",
@@ -83,8 +84,12 @@ struct SettingsView: View {
                 TextField("Your name", text: $userName)
                     .multilineTextAlignment(.trailing)
                     .foregroundStyle(Theme.warmCharcoal)
+                    .onChange(of: userName) { _, newValue in
+                        if newValue.count > 100 {
+                            userName = String(newValue.prefix(100))
+                        }
+                    }
                     .onSubmit { saveName() }
-                    .onChange(of: userName) { _, _ in saveName() }
             }
             .listRowBackground(Color.white)
         } header: {
@@ -176,7 +181,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Natural Voice")
                         .foregroundStyle(Theme.warmCharcoal)
-                    Text("On-device neural TTS (~175 MB download)")
+                    Text("On-device neural TTS (~160 MB download)")
                         .font(.caption)
                         .foregroundStyle(Theme.walnut)
                 }
@@ -204,11 +209,23 @@ struct SettingsView: View {
                         .tint(Theme.terracotta)
                 }
                 .listRowBackground(Color.white)
+
+                Button(role: .destructive) {
+                    kokoroManager.cancelDownload()
+                    kokoroEnabled = false
+                } label: {
+                    HStack {
+                        Image(systemName: "xmark.circle")
+                        Text("Cancel Download")
+                    }
+                    .foregroundStyle(Theme.mutedRose)
+                }
+                .listRowBackground(Color.white)
             }
 
-            if kokoroManager.phase == .loading {
+            if kokoroManager.phase == .compiling || kokoroManager.phase == .loading {
                 HStack {
-                    Text("Loading voice model...")
+                    Text(kokoroManager.statusMessage ?? "Loading voice model...")
                         .foregroundStyle(Theme.walnut)
                     Spacer()
                     ProgressView()
@@ -220,13 +237,40 @@ struct SettingsView: View {
 
             if kokoroManager.isReady {
                 Picker("Voice", selection: $selectedVoice) {
-                    ForEach(kokoroManager.availableVoices, id: \.self) { voice in
+                    ForEach(curatedVoices, id: \.self) { voice in
                         Text(voiceDisplayName(voice)).tag(voice)
                     }
                 }
                 .foregroundStyle(Theme.warmCharcoal)
                 .onChange(of: selectedVoice) { _, newVoice in
                     KokoroManager.selectedVoice = newVoice
+                }
+                .listRowBackground(Color.white)
+            }
+
+            if kokoroManager.phase == .failed {
+                Button {
+                    kokoroManager.downloadModel()
+                    kokoroEnabled = true
+                    KokoroManager.isEnabled = true
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry Download")
+                    }
+                    .foregroundStyle(Theme.terracotta)
+                }
+                .listRowBackground(Color.white)
+
+                Button(role: .destructive) {
+                    kokoroManager.deleteModel()
+                    kokoroEnabled = false
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete Partial Files")
+                    }
+                    .foregroundStyle(Theme.mutedRose)
                 }
                 .listRowBackground(Color.white)
             }
@@ -262,45 +306,50 @@ struct SettingsView: View {
         }
     }
 
+    /// Curated subset: 3 female + 3 male voices for simplicity
+    private static let preferredVoiceIDs: [String] = [
+        "af_heart", "af_nova", "af_sky",
+        "am_adam", "am_michael", "am_echo"
+    ]
+
+    private var curatedVoices: [String] {
+        let available = kokoroManager.availableVoices
+        let curated = Self.preferredVoiceIDs.filter { available.contains($0) }
+        // If none of the preferred voices exist, fall back to first 6
+        return curated.isEmpty ? Array(available.prefix(6)) : curated
+    }
+
+    /// Format voice ID (e.g., "af_heart") into a display name ("Heart — US Female").
     private func voiceDisplayName(_ voiceID: String) -> String {
         let parts = voiceID.split(separator: "_")
-        guard parts.count >= 2 else { return voiceID }
-        let prefix = String(parts[0])
+        guard parts.count >= 2 else { return voiceID.capitalized }
+        let prefix = String(parts[0])  // "af", "am", "bf", "bm"
         let name = String(parts[1]).capitalized
 
-        let gender: String
-        if prefix.hasPrefix("a") { gender = "Female" }
-        else if prefix.hasPrefix("b") { gender = "Male" }
-        else { gender = "" }
+        // Second character: f = female, m = male
+        let gender = prefix.hasSuffix("f") ? "Female" : "Male"
+        // First character: a = American, b = British
+        let accent = prefix.hasPrefix("a") ? "US" : "UK"
 
-        let accent = prefix.contains("f") ? "US" : "UK"
-
-        if gender.isEmpty {
-            return "\(name) (\(accent))"
-        }
-        return "\(name) (\(accent) \(gender))"
+        return "\(name) — \(accent) \(gender)"
     }
 
     // MARK: - Voice Section
 
+    private static let timeoutOptions: [(String, Double)] = [
+        ("Off", 0), ("3s", 3), ("5s", 5), ("10s", 10), ("15s", 15)
+    ]
+
     private var voiceSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Silence Timeout")
-                        .foregroundStyle(Theme.warmCharcoal)
-                    Spacer()
-                    Text(silenceTimeout == 0 ? "Off" : "\(silenceTimeout, specifier: "%.1f")s")
-                        .foregroundStyle(Theme.walnut)
+            Picker("Silence Timeout", selection: $silenceTimeout) {
+                ForEach(Self.timeoutOptions, id: \.1) { label, value in
+                    Text(label).tag(value)
                 }
-                Slider(value: $silenceTimeout, in: 0...15.0, step: 0.5)
-                    .tint(Theme.terracotta)
-                    .onChange(of: silenceTimeout) { _, newValue in
-                        StorageService.silenceTimeout = newValue
-                    }
-                Text("Auto-stop listening after silence. Slide to zero to disable.")
-                    .font(.caption)
-                    .foregroundStyle(Theme.walnut)
+            }
+            .foregroundStyle(Theme.warmCharcoal)
+            .onChange(of: silenceTimeout) { _, newValue in
+                StorageService.silenceTimeout = newValue
             }
             .listRowBackground(Color.white)
         } header: {
@@ -314,6 +363,15 @@ struct SettingsView: View {
 
     private var modelSection: some View {
         Section {
+            HStack {
+                Text("AI Model")
+                    .foregroundStyle(Theme.warmCharcoal)
+                Spacer()
+                Text(ModelConfig.LLM.selectedModel.displayName)
+                    .foregroundStyle(Theme.walnut)
+            }
+            .listRowBackground(Color.white)
+
             HStack {
                 Text("Model Status")
                     .foregroundStyle(Theme.warmCharcoal)
@@ -358,10 +416,10 @@ struct SettingsView: View {
                 showDeleteModelConfirmation = true
             } label: {
                 HStack {
-                    Image(systemName: "trash")
-                    Text("Delete Model Cache")
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("Change AI Model")
                 }
-                .foregroundStyle(Theme.mutedRose)
+                .foregroundStyle(Theme.terracotta)
             }
             .listRowBackground(Color.white)
         } header: {
@@ -443,17 +501,13 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func loadSettings() {
-        do {
-            let config = try storage.readConfig()
-            userName = config.name
-        } catch {
-            userName = "friend"
-        }
+        let config = storage.readConfig()
+        userName = config.name
     }
 
     private func saveName() {
         do {
-            var config = try storage.readConfig()
+            var config = storage.readConfig()
             config.name = userName
             try storage.writeConfig(config)
         } catch {
@@ -507,6 +561,13 @@ struct SettingsView: View {
     private func deleteModelCache() {
         modelState.deleteModelCache()
         computeStorageSizes()
+    }
+
+    private func changeModel() {
+        modelState.deleteModelCache()
+        computeStorageSizes()
+        // Navigate back to LaunchView to show the model picker
+        appState.activeScreen = .launch
     }
 
     private func exportAnswers() {
@@ -566,8 +627,9 @@ struct SettingsView: View {
         // Delete rotation state
         try? fm.removeItem(at: storage.rotationURL)
 
-        // Delete model cache
+        // Delete model caches (LLM + Kokoro TTS)
         deleteModelCache()
+        kokoroManager.deleteModel()
 
         // Cancel notifications
         NotificationService.cancelDailyReminder()

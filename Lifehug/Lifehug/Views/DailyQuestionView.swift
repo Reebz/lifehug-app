@@ -7,7 +7,6 @@ struct DailyQuestionView: View {
     @Environment(LLMService.self) private var llmService
     @Environment(TTSService.self) private var ttsService
     @State private var storageService = StorageService()
-    @State private var recordingTask: Task<Void, Never>?
     @State private var questions: [Question] = []
     @State private var categories: [Character: Category] = [:]
     @State private var rotationState: RotationState = .default
@@ -34,32 +33,57 @@ struct DailyQuestionView: View {
             ZStack {
                 Theme.cream.ignoresSafeArea()
 
-                if voiceSessionActive {
-                    voiceSessionContentArea
-                } else {
-                    idleContentArea
+                Group {
+                    if voiceSessionActive {
+                        voiceSessionContentArea
+                    } else {
+                        idleContentArea
+                    }
                 }
+                .animation(.easeOut(duration: 0.3), value: voiceSessionActive)
 
                 if showSavedConfirmation {
                     savedOverlay
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     micButton
+
+                    Text(micStateLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.walnut)
 
                     if showTypeInput {
                         typeInputArea
                     } else {
+                        // Keep typeInsteadButton in hierarchy but invisible during voice
+                        // sessions to prevent safeAreaInset height change (layout jump).
                         typeInsteadButton
+                            .visible(!voiceSessionActive)
+                    }
+
+                    // View Conversation button — kept in hierarchy during voice sessions
+                    // for layout stability (prevents mic button from jumping vertically).
+                    if !session.conversationTurns.isEmpty {
+                        Button {
+                            navigateToConversation = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "bubble.left.and.text.bubble.right")
+                                    .font(.system(size: 14, weight: .medium))
+                                Text("View Conversation")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .foregroundStyle(Theme.terracotta)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .visible(!voiceSessionActive)
                     }
                 }
                 .padding(.bottom, 8)
-                .background(
-                    Theme.cream
-                        .shadow(color: .black.opacity(0.04), radius: 8, y: -4)
-                        .ignoresSafeArea(edges: .bottom)
-                )
             }
             .navigationDestination(isPresented: $navigateToConversation) {
                 ConversationView(
@@ -69,12 +93,10 @@ struct DailyQuestionView: View {
                     questionBankMarkdown: $questionBankMarkdown
                 )
             }
+            .modifier(LifehugBarStyle())
         }
         .task {
             await loadQuestionData()
-        }
-        .onChange(of: pipeline?.state) { _, newState in
-            // No-op: state changes drive UI reactively
         }
     }
 
@@ -85,6 +107,21 @@ struct DailyQuestionView: View {
             Spacer()
 
             questionContent
+                .id(session.currentQuestion?.id)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.4), value: session.currentQuestion?.id)
+
+            // Skip question (Issue 13)
+            if !voiceSessionActive && session.conversationTurns.isEmpty && session.currentQuestion != nil {
+                Button {
+                    skipCurrentQuestion()
+                } label: {
+                    Text("Skip this question")
+                        .font(.caption)
+                        .foregroundStyle(Theme.softGray)
+                }
+                .accessibilityLabel("Skip this question and load a different one")
+            }
 
             transcriptArea
 
@@ -128,7 +165,7 @@ struct DailyQuestionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(session.conversationTurns) { turn in
-                            voiceTranscriptBubble(for: turn)
+                            VoiceTranscriptBubble(role: turn.role, text: turn.text)
                                 .id(turn.id)
                         }
 
@@ -136,33 +173,31 @@ struct DailyQuestionView: View {
                         if pipeline?.state == .listening,
                            let partial = pipeline?.partialTranscript,
                            !partial.isEmpty {
-                            HStack(alignment: .top, spacing: 6) {
-                                Text("You:")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.terracotta)
-                                Text(partial)
-                                    .font(Theme.bodySerifFont)
-                                    .foregroundStyle(Theme.warmCharcoal.opacity(0.6))
-                                    .italic()
+                            LiveTranscriptBubble(transcript: partial)
+                                .id("livePartial")
+                        }
+
+                        // "Thinking..." indicator before first token
+                        if let pipeline,
+                           pipeline.state == .processing,
+                           pipeline.responseChunks.isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(Theme.warmGray)
+                                Text("Thinking...")
+                                    .font(Theme.captionSerifFont)
+                                    .foregroundStyle(Theme.warmGray)
                             }
                             .padding(.horizontal, 16)
-                            .id("livePartial")
+                            .transition(.opacity)
                         }
 
                         // Streaming LLM response while processing/speaking
                         if let pipeline,
                            (pipeline.state == .processing || pipeline.state == .speaking),
                            !pipeline.responseChunks.isEmpty {
-                            HStack(alignment: .top, spacing: 6) {
-                                Text("AI:")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.sageGreen)
-                                Text(pipeline.responseChunks)
-                                    .font(Theme.bodySerifFont)
-                                    .foregroundStyle(Theme.warmCharcoal.opacity(0.8))
-                            }
-                            .padding(.horizontal, 16)
-                            .id("streamingResponse")
+                            StreamingResponseBubble(text: pipeline.responseChunks)
+                                .id("streamingResponse")
                         }
                     }
                     .padding(.vertical, 12)
@@ -186,37 +221,61 @@ struct DailyQuestionView: View {
                 }
             }
 
+            // LLM loading indicator (Issue 5)
+            if voiceSessionActive && !llmService.isLoaded {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).tint(Theme.terracotta)
+                    Text("Preparing AI responses...")
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
+                }
+                .padding(.horizontal, 16)
+                .transition(.opacity)
+            }
+
+            // Error toast (Issue 4)
+            if let errorMsg = pipeline?.error {
+                Text(errorMsg)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.mutedRose))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        Task {
+                            try? await Task.sleep(for: .seconds(5))
+                            pipeline?.error = nil
+                        }
+                    }
+            }
+
             // Done & Save button
             Button {
                 Task { await endVoiceSessionAndSave() }
             } label: {
-                Text("Done & Save")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 12)
-                    .background(
-                        Capsule()
-                            .fill(Theme.terracotta)
-                    )
+                Group {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Text("Done & Save")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule()
+                        .fill(isSaving ? Theme.terracotta.opacity(0.6) : Theme.terracotta)
+                )
             }
             .disabled(session.conversationTurns.isEmpty || isSaving)
+            .accessibilityLabel(isSaving ? "Saving your answer" : "Done and save your answer")
         }
-    }
-
-    // MARK: - Voice Transcript Bubble
-
-    @ViewBuilder
-    private func voiceTranscriptBubble(for turn: ConversationTurn) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(turn.role == .user ? "You:" : "AI:")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(turn.role == .user ? Theme.terracotta : Theme.sageGreen)
-            Text(turn.text)
-                .font(Theme.bodySerifFont)
-                .foregroundStyle(Theme.warmCharcoal)
-        }
-        .padding(.horizontal, 16)
     }
 
     // MARK: - Question Content
@@ -226,10 +285,11 @@ struct DailyQuestionView: View {
         if let question = session.currentQuestion {
             VStack(spacing: 12) {
                 Text(question.text)
-                    .font(Theme.title2Font)
+                    .font(Theme.titleFont)
                     .foregroundStyle(Theme.warmCharcoal)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
+                    .minimumScaleFactor(0.7)
 
                 if let cat = categories[question.category] {
                     Text("\(String(question.category)): \(cat.name)")
@@ -259,17 +319,29 @@ struct DailyQuestionView: View {
 
     private var micButtonColor: Color {
         guard voiceSessionActive, let pipeline else {
-            return Theme.terracotta
+            return Theme.terracotta  // Idle/not started — warm default
         }
         switch pipeline.state {
         case .listening:
-            return Theme.recordingRed
-        case .speaking:
-            return Theme.sageGreen
+            return Theme.recordingRed   // Solid RED — actively recording
         case .processing:
-            return Theme.amber
+            return Theme.amber          // ORANGE — thinking
+        case .speaking:
+            return Theme.speakingGreen  // Solid GREEN — AI speaking
         case .idle:
-            return Theme.terracotta
+            return Theme.amber          // ORANGE — paused/waiting
+        }
+    }
+
+    private var micStateLabel: String {
+        guard voiceSessionActive, let pipeline else {
+            return "Tap to start"
+        }
+        switch pipeline.state {
+        case .listening: return "Recording..."
+        case .processing: return "Thinking..."
+        case .speaking: return "AI speaking"
+        case .idle: return "Tap to resume"
         }
     }
 
@@ -280,7 +352,7 @@ struct DailyQuestionView: View {
         if voiceSessionActive, let pipeline {
             switch pipeline.state {
             case .listening:
-                Image(systemName: "mic.fill")
+                Image(systemName: "waveform")
                     .font(.system(size: micIconSize, weight: .medium))
                     .foregroundStyle(.white)
             case .processing:
@@ -292,7 +364,7 @@ struct DailyQuestionView: View {
                     .font(.system(size: micIconSize, weight: .medium))
                     .foregroundStyle(.white)
             case .idle:
-                Image(systemName: "pause.fill")
+                Image(systemName: "mic.fill")
                     .font(.system(size: micIconSize, weight: .medium))
                     .foregroundStyle(.white)
             }
@@ -311,31 +383,21 @@ struct DailyQuestionView: View {
                 .fill(micButtonColor)
                 .frame(width: micDiameter, height: micDiameter)
                 .shadow(
-                    color: micButtonColor.opacity(0.3),
-                    radius: (voiceSessionActive && pipeline?.state == .listening) ? 16 : 8,
+                    color: micButtonColor.opacity(0.15),
+                    radius: 8,
                     y: 4
-                )
-                .scaleEffect((voiceSessionActive && pipeline?.state == .listening) ? 1.08 : 1.0)
-                .animation(
-                    (voiceSessionActive && pipeline?.state == .listening)
-                        ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.2),
-                    value: pipeline?.state
                 )
 
             micButtonIcon
         }
+        .transaction { $0.animation = nil }
         .contentShape(Circle())
-        .onTapGesture(count: 2) {
-            triggerHaptic()
-            Task { await endVoiceSessionAndSave() }
-        }
-        .onTapGesture(count: 1) {
+        .onTapGesture {
             triggerHaptic()
             handleSingleTap()
         }
         .disabled(session.currentQuestion == nil)
-        .accessibilityLabel(voiceSessionActive ? "Voice session active" : "Start voice session")
+        .accessibilityLabel(micStateLabel)
     }
 
     // MARK: - Transcript Area
@@ -389,6 +451,7 @@ struct DailyQuestionView: View {
         }
         .buttonStyle(.plain)
         .disabled(session.currentQuestion == nil)
+        .accessibilityLabel("Type your answer instead of speaking")
     }
 
     private var typeInputArea: some View {
@@ -436,6 +499,7 @@ struct DailyQuestionView: View {
     private var savedOverlay: some View {
         ZStack {
             Color.black.opacity(0.3).ignoresSafeArea()
+                .onTapGesture { dismissSavedOverlay() }
             VStack(spacing: 16) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 48))
@@ -444,6 +508,9 @@ struct DailyQuestionView: View {
                     .font(Theme.title3Font)
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.warmCharcoal)
+                Text("Tap to dismiss")
+                    .font(.caption)
+                    .foregroundStyle(Theme.softGray)
             }
             .padding(32)
             .background(
@@ -451,8 +518,15 @@ struct DailyQuestionView: View {
                     .fill(.white)
                     .shadow(color: .black.opacity(0.1), radius: 20, y: 8)
             )
+            .onTapGesture { dismissSavedOverlay() }
         }
         .transition(.opacity)
+    }
+
+    private func dismissSavedOverlay() {
+        withAnimation(.easeOut(duration: 0.3)) {
+            showSavedConfirmation = false
+        }
     }
 
     // MARK: - Haptic Feedback
@@ -465,50 +539,50 @@ struct DailyQuestionView: View {
     // MARK: - Voice Session Management
 
     private func startVoiceSession() {
-        voiceSessionTask = Task {
-            // Ensure LLM model is loaded
-            if !llmService.isLoaded {
+        // Guard against double-tap creating duplicate pipelines and STT streams
+        guard !voiceSessionActive, pipeline == nil else { return }
+
+        // Create pipeline and wire callbacks immediately (no async delay)
+        let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
+        pipe.autoReopenMic = true
+
+        pipe.onTranscriptFinalized = { text in
+            session.addTurn(role: .user, text: text)
+        }
+        pipe.onResponseGenerated = { text in
+            session.addTurn(role: .assistant, text: text)
+        }
+        pipe.onTerminationDetected = {
+            Task { await endVoiceSessionAndSave() }
+        }
+
+        pipe.wireAutoReopen()
+
+        // Start LLM session if needed
+        if !hasStartedLLMSession {
+            let userName = storageService.readConfig().name
+            let prompt = LLMService.memoirInterviewerPrompt(
+                userName: userName,
+                questionText: session.currentQuestion?.text ?? ""
+            )
+            llmService.startNewSession(systemPrompt: prompt)
+            hasStartedLLMSession = true
+        }
+
+        // Order matters for instant mic button feedback:
+        // 1. Assign pipeline (so micButtonColor can read pipeline.state)
+        pipeline = pipe
+        // 2. Start listening (sets state = .listening synchronously → mic turns red)
+        pipe.startListening()
+        // 3. Flip layout flag WITHOUT withAnimation — mic button color must snap instantly.
+        //    Content area crossfade is handled by .animation() on the content ZStack.
+        voiceSessionActive = true
+
+        // Load LLM model in background (won't block mic)
+        if !llmService.isLoaded {
+            voiceSessionTask = Task {
                 try? await llmService.loadModel()
             }
-
-            guard !Task.isCancelled else { return }
-
-            // Create pipeline and wire callbacks
-            let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
-            pipe.autoReopenMic = true
-            pipe.wireAudioObservers()
-
-            pipe.onTranscriptFinalized = { text in
-                session.addTurn(role: .user, text: text)
-            }
-            pipe.onResponseGenerated = { text in
-                session.addTurn(role: .assistant, text: text)
-            }
-            pipe.onTerminationDetected = {
-                Task { await endVoiceSessionAndSave() }
-            }
-
-            // Wire auto-reopen (added by parallel agent)
-            pipe.wireAutoReopen()
-
-            // Start LLM session if needed
-            if !hasStartedLLMSession {
-                let userName = (try? storageService.readConfig().name) ?? "friend"
-                let prompt = LLMService.memoirInterviewerPrompt(
-                    userName: userName,
-                    questionText: session.currentQuestion?.text ?? ""
-                )
-                llmService.startNewSession(systemPrompt: prompt)
-                hasStartedLLMSession = true
-            }
-
-            pipeline = pipe
-
-            withAnimation(.easeOut(duration: 0.3)) {
-                voiceSessionActive = true
-            }
-
-            pipe.startListening()
         }
     }
 
@@ -517,11 +591,7 @@ struct DailyQuestionView: View {
         voiceSessionTask = nil
         pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
-
-        withAnimation(.easeOut(duration: 0.3)) {
-            voiceSessionActive = false
-        }
-
+        voiceSessionActive = false
         pipeline = nil
     }
 
@@ -532,11 +602,7 @@ struct DailyQuestionView: View {
         voiceSessionTask = nil
         pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
-
-        withAnimation(.easeOut(duration: 0.3)) {
-            voiceSessionActive = false
-        }
-
+        voiceSessionActive = false
         pipeline = nil
 
         if hasTurns {
@@ -594,6 +660,9 @@ struct DailyQuestionView: View {
                 }
             }
 
+            // Haptic on save success (Issue 17)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+
             // Show saved confirmation
             withAnimation(.easeOut(duration: 0.3)) {
                 showSavedConfirmation = true
@@ -641,70 +710,6 @@ struct DailyQuestionView: View {
         }
     }
 
-    // MARK: - Voice Recording (fallback)
-
-    private func startRecording() {
-        session.draftTranscript = ""
-
-        recordingTask = Task {
-            if !sttService.isAuthorized {
-                await sttService.requestAuthorization()
-            }
-            guard sttService.isAuthorized else {
-                loadError = sttService.error ?? "Microphone or speech recognition not authorized."
-                return
-            }
-
-            withAnimation(.easeOut(duration: 0.2)) {
-                session.isRecording = true
-            }
-
-            let stream = sttService.startListening()
-
-            // Check if STT hit an error during startup
-            if let sttError = sttService.error {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    session.isRecording = false
-                }
-                loadError = sttError
-                return
-            }
-
-            for await transcript in stream {
-                guard !Task.isCancelled else { return }
-                session.draftTranscript = transcript
-            }
-
-            guard !Task.isCancelled else { return }
-
-            session.isRecording = false
-            let text = session.draftTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty {
-                session.addTurn(role: .user, text: text)
-                navigateToConversation = true
-            }
-        }
-    }
-
-    private func stopRecording() {
-        recordingTask?.cancel()
-        recordingTask = nil
-        sttService.stopListening()
-
-        withAnimation(.easeOut(duration: 0.2)) {
-            session.isRecording = false
-        }
-
-        // Use sttService.partialTranscript as fallback — the stream may not have
-        // delivered the latest partial before the task was cancelled.
-        let text = (session.draftTranscript.isEmpty ? sttService.partialTranscript : session.draftTranscript)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty {
-            session.addTurn(role: .user, text: text)
-            navigateToConversation = true
-        }
-    }
-
     // MARK: - Actions
 
     @MainActor
@@ -714,7 +719,7 @@ struct DailyQuestionView: View {
             questionBankMarkdown = try storageService.readQuestionBank()
             categories = QuestionBankParser.parseCategories(from: questionBankMarkdown)
             questions = QuestionBankParser.parseQuestions(from: questionBankMarkdown)
-            rotationState = try storageService.readRotationState()
+            rotationState = storageService.readRotationState()
 
             pickTodayQuestion()
         } catch {
@@ -735,6 +740,19 @@ struct DailyQuestionView: View {
             session.currentQuestion = next
         } else {
             loadError = "All questions answered! Check the coverage map."
+        }
+    }
+
+    private func skipCurrentQuestion() {
+        if let next = RotationEngine.pickNextQuestion(
+            questions: questions,
+            categories: categories,
+            rotation: rotationState,
+            excluding: session.currentQuestion?.id
+        ) {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                session.currentQuestion = next
+            }
         }
     }
 

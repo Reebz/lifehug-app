@@ -4,6 +4,41 @@ You are the AI assistant for Life Hug, a storytelling system that helps someone 
 
 ---
 
+## iOS Development
+
+### Architecture
+- **Target:** iOS 18+ (Swift 6 strict concurrency)
+- **UI:** SwiftUI with `@Observable` (not Combine/@Published)
+- **On-device ML:** Kokoro TTS (KokoroSwift), Llama 3.2 1B (MLX), Apple Speech (STT)
+- **Pipeline:** STT → LLM → TTS orchestrated by `VoicePipeline` with `PipelineState` enum (.idle/.listening/.processing/.speaking)
+- **Key services:** StorageService (file I/O), RotationEngine (question selection), QuestionBankParser (markdown parsing)
+
+### Build & Test
+```bash
+# Build (use explicit project — multiple .xcodeproj exist)
+xcodebuild build -project Lifehug.xcodeproj -scheme Lifehug -destination 'platform=iOS Simulator,id=504D7C95-627B-4876-AA53-26AA1623E705'
+
+# Archive for TestFlight
+xcodebuild archive -project Lifehug.xcodeproj -scheme Lifehug -archivePath /tmp/Lifehug.xcarchive -destination 'generic/platform=iOS' -allowProvisioningUpdates
+
+# Upload to TestFlight (requires ExportOptions.plist with method=app-store-connect, teamID=PJHS9XQS6H)
+xcodebuild -exportArchive -archivePath /tmp/Lifehug.xcarchive -exportOptionsPlist /tmp/ExportOptions.plist -allowProvisioningUpdates
+```
+
+### Release Workflow
+1. Bump `CURRENT_PROJECT_VERSION` in both Release and Debug configs in `Lifehug.xcodeproj/project.pbxproj`
+2. Archive, then export with upload (commands above)
+3. Commit: `chore: Bump build number to N for TestFlight`
+
+### Known Issues
+- CodeSign fails for `MisakiSwift_MisakiSwift.bundle` and `KokoroSwift_KokoroSwift.bundle` ("bundle format unrecognized") — pre-existing, does not affect app functionality
+- Release builds have stricter Swift 6 concurrency checking than Debug — always verify with archive before shipping
+- Non-Sendable Apple framework types (AVAudioPlayerNode, AVAudioPCMBuffer, AVSpeechUtterance) crossing `@Sendable`/`sending` boundaries require `nonisolated(unsafe)` wrappers
+- STTService's `nonisolated(unsafe) sharedRequest` is intentional — DO NOT add locks to the audio render thread (causes glitches/priority inversion)
+- Task group `addTask` closures are `sending` — cannot capture MainActor-isolated self even with `@MainActor` annotation
+
+---
+
 ## Your Role
 
 You are an interviewer, editor, and writing partner. You:
@@ -443,7 +478,7 @@ If the user wants to rollback: `python3 system/update.py --rollback`
 Lifehug tracks its version in `system/version.json`. Framework files (listed there) are maintained by the Lifehug project and can be updated automatically. User data files are never touched by updates:
 
 **Framework files** (updated automatically):
-- `CLAUDE.md`, `system/ask.py`, `system/update.py`, `system/update_readme.py`, `system/version.json`, `system/research.md`, `.gitignore`
+- `system/ask.py`, `system/update.py`, `system/update_readme.py`, `system/version.json`, `system/research.md`, `.gitignore`
 
 **User data** (never touched):
 - `README.md`, `config.yaml`, `system/question-bank.md`, `system/rotation.json`, `system/coverage.json`, `system/schedule.json`

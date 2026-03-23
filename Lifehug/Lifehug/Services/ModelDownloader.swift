@@ -10,7 +10,8 @@ import os
 final class ModelDownloader {
     // MARK: - Configuration
 
-    static let modelID = ModelConfig.LLM.modelID
+    /// Dynamic — reads the currently selected model. Do NOT capture as `let`.
+    static var modelID: String { ModelConfig.LLM.modelID }
 
     // MARK: - Observable State
 
@@ -18,6 +19,7 @@ final class ModelDownloader {
     private(set) var downloadedMB: Double = 0
     private(set) var totalMB: Double = 0
     private(set) var phase: Phase = .idle
+    private var lastProgressUpdate: Date = .distantPast
     private(set) var errorMessage: String?
 
     enum Phase: Sendable {
@@ -47,17 +49,33 @@ final class ModelDownloader {
 
     // MARK: - Public API
 
-    /// Whether the model files exist on disk (quick check, does not verify integrity).
+    /// Whether the SELECTED model's files exist on disk.
     var isModelCached: Bool {
-        // HubApi stores downloads in {downloadBase}/huggingface/hub/models--{org}--{model}/
+        cachedModelOption != nil && cachedModelOption == ModelConfig.LLM.selectedModel
+    }
+
+    /// Whether ANY model is cached on disk. Returns true even if the cached model
+    /// differs from the selected one — used to skip the onboarding picker for returning users.
+    var isAnyModelCached: Bool {
+        cachedModelOption != nil
+    }
+
+    /// Which ModelOption is currently cached on disk, if any.
+    /// Auto-syncs the selection to match whatever is actually on disk.
+    var cachedModelOption: ModelConfig.LLM.ModelOption? {
         let hubDir = storage.modelsDirectory
             .appendingPathComponent("huggingface")
             .appendingPathComponent("hub")
         let fm = FileManager.default
-        guard fm.fileExists(atPath: hubDir.path) else { return false }
-        // Check if there's at least one model directory inside
+        guard fm.fileExists(atPath: hubDir.path) else { return nil }
         let contents = (try? fm.contentsOfDirectory(atPath: hubDir.path)) ?? []
-        return contents.contains { $0.hasPrefix("models--") }
+        for option in ModelConfig.LLM.ModelOption.allCases {
+            let expectedDir = "models--" + option.huggingFaceID.replacingOccurrences(of: "/", with: "--")
+            if contents.contains(where: { $0 == expectedDir }) {
+                return option
+            }
+        }
+        return nil
     }
 
     /// Start (or resume) the model download. Safe to call multiple times.
@@ -141,8 +159,8 @@ final class ModelDownloader {
             throw DownloadError.noNetwork
         }
 
-        // Disk space check (need ~1 GB for the 1B-4bit model)
-        try checkDiskSpace(requiredMB: 1024)
+        // Disk space check — size varies by selected model
+        try checkDiskSpace(requiredMB: ModelConfig.LLM.selectedModel.diskSizeMB)
 
         let configuration = ModelConfiguration(
             id: Self.modelID
@@ -159,6 +177,11 @@ final class ModelDownloader {
         ) { [weak self] progress in
             guard let self else { return }
             Task { @MainActor in
+                // Throttle UI updates to ~10 Hz to avoid excessive SwiftUI redraws
+                let now = Date()
+                guard now.timeIntervalSince(self.lastProgressUpdate) >= 0.1
+                      || progress.fractionCompleted >= 1.0 else { return }
+                self.lastProgressUpdate = now
                 self.progress = progress.fractionCompleted
                 self.downloadedMB = Double(progress.completedUnitCount) / 1_000_000
                 self.totalMB = Double(progress.totalUnitCount) / 1_000_000
@@ -191,8 +214,17 @@ final class ModelDownloader {
 
     private func clearModelFiles() {
         let hubDir = storage.modelsDirectory.appendingPathComponent("huggingface")
-        try? FileManager.default.removeItem(at: hubDir)
-        logger.info("Cleared model files for re-download")
+        let fm = FileManager.default
+        if fm.fileExists(atPath: hubDir.path) {
+            do {
+                try fm.removeItem(at: hubDir)
+                logger.info("Cleared model files at: \(hubDir.path)")
+            } catch {
+                logger.error("Failed to clear model files: \(error)")
+            }
+        } else {
+            logger.info("No model files to clear at: \(hubDir.path)")
+        }
     }
 
     // MARK: - Checks

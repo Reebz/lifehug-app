@@ -37,21 +37,36 @@ struct LifehugApp: App {
                 .environment(kokoroManager)
                 .task {
                     ttsService.setKokoroManager(kokoroManager)
-                    if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
-                        await kokoroManager.loadEngine()
-                    }
+                    kokoroManager.cleanupLegacyFilesIfNeeded()
+                    // Load ASR and Kokoro in parallel — neither blocks the other.
+                    let shouldLoadKokoro = KokoroManager.isEnabled && kokoroManager.isModelDownloaded
+                    async let asrLoad: () = sttService.loadASRModel()
+                    async let kokoroLoad: () = {
+                        if shouldLoadKokoro {
+                            await kokoroManager.loadEngine()
+                        }
+                    }()
+                    _ = await (asrLoad, kokoroLoad)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     modelState.handleScenePhaseChange(newPhase)
                     switch newPhase {
                     case .background:
+                        sessionState.flushAutoSave()
+                        ttsService.stop()
                         kokoroManager.unloadEngine()
                         llmService.unloadModel()
                     case .active:
-                        // Reload LLM if it was previously loaded
-                        if !llmService.isLoaded {
-                            Task {
+                        Task {
+                            // Reload LLM if it was previously loaded
+                            if !llmService.isLoaded {
                                 try? await llmService.loadModel()
+                            }
+                            if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
+                                ttsService.forceDegradedToSystem = false
+                                if !kokoroManager.isReady {
+                                    await kokoroManager.loadEngine()
+                                }
                             }
                         }
                     default:
@@ -78,7 +93,7 @@ struct ContentView: View {
                 OnboardingView()
             default:
                 TabView(selection: $selectedTab) {
-                    Tab("Today", systemImage: "sun.max.fill", value: 0) {
+                    Tab("Today", systemImage: "quote.bubble.fill", value: 0) {
                         DailyQuestionView()
                     }
 
@@ -97,5 +112,18 @@ struct ContentView: View {
                 .tint(Theme.terracotta)
             }
         }
+        .preferredColorScheme(.light)
+    }
+}
+
+struct LifehugBarStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .toolbarBackground(Theme.cream, for: .navigationBar)
+            .toolbarBackground(Theme.cream, for: .tabBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(.visible, for: .tabBar)
+            .toolbarColorScheme(.light, for: .navigationBar)
+            .toolbarColorScheme(.light, for: .tabBar)
     }
 }

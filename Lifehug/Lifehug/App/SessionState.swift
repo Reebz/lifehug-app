@@ -29,6 +29,14 @@ final class SessionState {
         return userTurns.map(\.text).joined(separator: "\n\n")
     }
 
+    /// Flush any pending auto-save immediately (no debounce).
+    /// Call when the app is about to enter background.
+    func flushAutoSave() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        autoSave()
+    }
+
     /// Reset session state for a new question.
     func resetSession() {
         autoSaveTask?.cancel()
@@ -46,7 +54,11 @@ final class SessionState {
     private static let legacyAutoSaveKey = "sessionAutoSave"
 
     private var autoSaveFileURL: URL {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = fileManager.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else {
+            fatalError("Application Support directory unavailable — iOS sandbox is broken")
+        }
         try? fileManager.createDirectory(at: appSupport, withIntermediateDirectories: true)
         return appSupport.appendingPathComponent("autosave.json")
     }

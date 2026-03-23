@@ -1,13 +1,11 @@
 import Foundation
 import AVFoundation
-import CryptoKit
-@preconcurrency import MLX
-@preconcurrency import KokoroSwift
-@preconcurrency import MLXUtilsLibrary
+import FluidAudio
 import UIKit
 import os
 
 /// Manages Kokoro neural TTS model download, loading, and audio synthesis.
+/// Uses FluidAudio's CoreML-based Kokoro implementation for stable on-device inference.
 @Observable
 @MainActor
 final class KokoroManager {
@@ -15,12 +13,14 @@ final class KokoroManager {
 
     private(set) var phase: Phase = .idle
     private(set) var downloadProgress: Double = 0
+    private(set) var statusMessage: String?
     private(set) var errorMessage: String?
     private(set) var cachedVoiceNames: [String] = []
 
     enum Phase: Sendable {
         case idle
         case downloading
+        case compiling
         case loading
         case ready
         case failed
@@ -29,82 +29,112 @@ final class KokoroManager {
     // MARK: - Private
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Kokoro")
-    // SAFETY: nonisolated(unsafe) is needed because KokoroTTS and MLXArray are not
-    // Sendable but must cross isolation boundaries to Task.detached for heavy computation.
-    // All mutations occur on @MainActor (loadEngine, unloadEngine, deleteModel).
-    // Reads in Task.detached (speak, loadEngine) await completion before the next mutation.
-    nonisolated(unsafe) private var ttsEngine: KokoroTTS?
-    nonisolated(unsafe) private var voices: [String: MLXArray] = [:]
-    private var audioEngine: AVAudioEngine?
-    private var playerNode: AVAudioPlayerNode?
+
+    /// nonisolated(unsafe) because KokoroTtsManager is not Sendable but we
+    /// only access it from MainActor-isolated methods (sequential, no races).
+    nonisolated(unsafe) private var ttsManager: KokoroTtsManager?
+
+    /// AVAudioPlayer for playing WAV data returned by FluidAudio.
+    /// Simpler than AVAudioEngine — FluidAudio returns complete WAV data.
+    private var audioPlayer: AVAudioPlayer?
+
+    /// Delegate that bridges AVAudioPlayer completion to async/await.
+    private var playerDelegate: PlayerDelegate?
+
     private var downloadTask: Task<Void, Never>?
 
-    /// Callback when the current utterance finishes playing.
-    var onUtteranceFinished: (@MainActor () -> Void)?
+    /// Guards against concurrent loadEngine() calls.
+    private var isLoading = false
 
-    // MARK: - File Locations
-
-    private static let modelFileName = ModelConfig.Kokoro.modelFileName
-    private static let voicesFileName = ModelConfig.Kokoro.voicesFileName
-
-    private var kokoroDir: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("kokoro", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    private var modelFileURL: URL {
-        kokoroDir.appendingPathComponent(Self.modelFileName)
-    }
-
-    private var voicesFileURL: URL {
-        kokoroDir.appendingPathComponent(Self.voicesFileName)
-    }
-
-    // MARK: - Public API
-
-    var isModelDownloaded: Bool {
-        FileManager.default.fileExists(atPath: modelFileURL.path) &&
-        FileManager.default.fileExists(atPath: voicesFileURL.path)
-    }
+    // MARK: - Computed Properties
 
     var isReady: Bool { phase == .ready }
+    var isModelDownloaded: Bool { ttsManager?.isAvailable == true || modelsExistOnDisk }
+    var availableVoices: [String] { cachedVoiceNames }
 
-    var availableVoices: [String] {
-        cachedVoiceNames
+    /// Check if FluidAudio has cached models on disk.
+    private var modelsExistOnDisk: Bool {
+        guard let cacheDir = try? TtsModels.cacheDirectoryURL() else { return false }
+        let modelsDir = cacheDir.appendingPathComponent(TtsConstants.defaultModelsSubdirectory)
+        return FileManager.default.fileExists(atPath: modelsDir.path)
     }
 
-    /// Selected voice identifier (stored in UserDefaults).
-    static var selectedVoice: String {
-        get { UserDefaults.standard.string(forKey: "kokoro_selected_voice") ?? "af_heart" }
-        set { UserDefaults.standard.set(newValue, forKey: "kokoro_selected_voice") }
-    }
+    // MARK: - Static Properties (UserDefaults-backed)
 
-    /// Whether Kokoro TTS is enabled (user preference).
     static var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "kokoro_enabled") }
         set { UserDefaults.standard.set(newValue, forKey: "kokoro_enabled") }
     }
 
-    // MARK: - Download
+    static var selectedVoice: String {
+        get {
+            let stored = UserDefaults.standard.string(forKey: "kokoro_selected_voice") ?? TtsConstants.recommendedVoice
+            // Validate against known voices — corrupted values (e.g., "bella" without
+            // the "af_" prefix) cause FluidAudio download failures.
+            if TtsConstants.availableVoices.contains(stored) {
+                return stored
+            }
+            return TtsConstants.recommendedVoice
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "kokoro_selected_voice") }
+    }
+
+    // MARK: - Download & Load Lifecycle
 
     func downloadModel() {
         guard downloadTask == nil else { return }
         errorMessage = nil
         phase = .downloading
         downloadProgress = 0
+        statusMessage = "Starting download..."
 
         downloadTask = Task {
             do {
-                try await performDownload()
-                await loadEngine()
+                // Download CoreML models with progress
+                let models = try await TtsModels.download(
+                    variants: [.fiveSecond, .fifteenSecond],
+                    progressHandler: { [weak self] progress in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.downloadProgress = progress.fractionCompleted
+                            switch progress.phase {
+                            case .listing:
+                                self.statusMessage = "Finding models..."
+                            case .downloading(let done, let total):
+                                self.statusMessage = "Downloading (\(done)/\(total))..."
+                                if self.phase != .downloading { self.phase = .downloading }
+                            case .compiling(let name):
+                                self.statusMessage = "Compiling \(name)..."
+                                self.phase = .compiling
+                            }
+                        }
+                    }
+                )
+
+                // Initialize TTS manager
+                phase = .loading
+                statusMessage = "Loading voice engine..."
+                let manager = KokoroTtsManager(defaultVoice: Self.selectedVoice)
+                try await manager.initialize(
+                    models: models,
+                    preloadVoices: [Self.selectedVoice]
+                )
+
+                ttsManager = manager
+                populateVoiceNames()
+                configureAudioSession()
+                phase = .ready
+                statusMessage = nil
+                logger.info("FluidAudio Kokoro initialized successfully")
+
             } catch is CancellationError {
                 phase = .idle
+                statusMessage = nil
             } catch {
-                logger.error("Kokoro download failed: \(error)")
+                logger.error("Kokoro setup failed: \(error)")
                 errorMessage = error.localizedDescription
                 phase = .failed
+                statusMessage = nil
             }
             downloadTask = nil
         }
@@ -113,67 +143,51 @@ final class KokoroManager {
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
-        // Clean up any partial downloads
-        if !isModelDownloaded {
-            try? FileManager.default.removeItem(at: modelFileURL)
-            try? FileManager.default.removeItem(at: voicesFileURL)
-        }
         phase = .idle
+        statusMessage = nil
     }
 
-    /// Load engine from already-downloaded files.
     func loadEngine() async {
-        guard isModelDownloaded else {
-            phase = .idle
+        guard ttsManager == nil, !isLoading else {
+            if ttsManager != nil { phase = .ready }
             return
         }
-        guard ttsEngine == nil else {
-            phase = .ready
-            return
-        }
-
-        // Check memory before loading ~80MB model
         guard MemoryMonitor.canLoadKokoro else {
             logger.warning("Skipping Kokoro load — memory pressure too high (\(MemoryMonitor.availableMB)MB available)")
             return
         }
 
+        isLoading = true
         phase = .loading
+        errorMessage = nil
+        statusMessage = "Loading voice engine..."
+
         do {
-            // Load model on a background thread (heavy computation)
-            let modelURL = modelFileURL
-            let voicesURL = voicesFileURL
+            let manager = KokoroTtsManager(defaultVoice: Self.selectedVoice)
+            // initialize() auto-downloads if models not cached
+            try await manager.initialize(preloadVoices: [Self.selectedVoice])
 
-            let (engine, loadedVoices) = try await Task.detached {
-                let eng = KokoroTTS(modelPath: modelURL)
-                let vcs = NpyzReader.read(fileFromPath: voicesURL) ?? [:]
-                return (eng, vcs)
-            }.value
-
-            guard !loadedVoices.isEmpty else {
-                throw KokoroError.voicesEmpty
-            }
-
-            ttsEngine = engine
-            voices = loadedVoices
-            cachedVoiceNames = loadedVoices.keys.map { String($0.split(separator: ".")[0]) }.sorted()
-            setupAudioEngine()
+            ttsManager = manager
+            populateVoiceNames()
+            configureAudioSession()
             phase = .ready
-            logger.info("Kokoro engine loaded with \(loadedVoices.count) voices")
+            statusMessage = nil
+            logger.info("FluidAudio Kokoro loaded")
         } catch {
-            logger.error("Kokoro engine load failed: \(error)")
+            logger.error("Kokoro load failed: \(error)")
             errorMessage = "Failed to load voice model: \(error.localizedDescription)"
             phase = .failed
+            statusMessage = nil
         }
+        isLoading = false
     }
 
     func unloadEngine() {
-        playerNode?.stop()
-        audioEngine?.stop()
-        audioEngine = nil
-        playerNode = nil
-        ttsEngine = nil
-        voices = [:]
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playerDelegate = nil
+        ttsManager?.cleanup()
+        ttsManager = nil
         cachedVoiceNames = []
         if phase == .ready {
             phase = .idle
@@ -183,215 +197,174 @@ final class KokoroManager {
 
     func deleteModel() {
         unloadEngine()
-        try? FileManager.default.removeItem(at: kokoroDir)
+        // Clear FluidAudio's cached CoreML models
+        if let cacheDir = try? TtsModels.cacheDirectoryURL() {
+            try? FileManager.default.removeItem(at: cacheDir)
+        }
+        // Clean up legacy MLX model files (Application Support/kokoro/)
+        // from pre-FluidAudio builds. The ~697MB safetensors file persists
+        // on devices that had the MLX version installed.
+        cleanupLegacyMLXFiles()
         Self.isEnabled = false
+        Self.selectedVoice = TtsConstants.recommendedVoice  // Reset to af_heart
         phase = .idle
-        logger.info("Kokoro model files deleted")
+        errorMessage = nil
+        logger.info("Kokoro model cache deleted")
     }
 
-    // MARK: - Synthesis
+    /// Auto-clean legacy files on first launch after migration. Safe to call multiple times.
+    func cleanupLegacyFilesIfNeeded() {
+        cleanupLegacyMLXFiles()
+    }
 
-    /// Synthesize and play a sentence. Returns when playback completes.
-    func speak(_ text: String) async {
-        guard let engine = ttsEngine else { return }
+    /// Remove legacy MLX Kokoro model files from Application Support/kokoro/.
+    /// These are from the pre-FluidAudio build and are no longer needed.
+    private func cleanupLegacyMLXFiles() {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else { return }
+        let legacyDir = appSupport.appendingPathComponent("kokoro", isDirectory: true)
+        if FileManager.default.fileExists(atPath: legacyDir.path) {
+            try? FileManager.default.removeItem(at: legacyDir)
+            logger.info("Removed legacy MLX kokoro directory (\(legacyDir.path))")
+        }
+    }
 
-        let voiceKey = Self.selectedVoice + ".npy"
-        guard let voiceEmbedding = voices[voiceKey] else {
-            logger.warning("Voice '\(Self.selectedVoice)' not found, falling back")
+    // MARK: - Synthesis & Playback
+
+    func speak(_ text: String) async throws {
+        guard ttsManager != nil else {
+            throw KokoroError.engineNotLoaded
+        }
+
+        logger.info("Kokoro synthesis starting — text: \(text.prefix(80)), memory: \(MemoryMonitor.availableMB)MB")
+
+        // Synthesize returns WAV-encoded Data at 24kHz.
+        // Access ttsManager through nonisolated(unsafe) binding to cross
+        // the @MainActor boundary into the async synthesize() call.
+        nonisolated(unsafe) let unsafeManager = ttsManager!
+        let voice = Self.selectedVoice
+        let audioData = try await unsafeManager.synthesize(
+            text: text,
+            voice: voice,
+            voiceSpeed: 1.0,
+            variantPreference: .fifteenSecond,
+            deEss: true
+        )
+
+        logger.info("Kokoro synthesis complete — \(audioData.count) bytes WAV")
+
+        guard !audioData.isEmpty else {
+            logger.warning("Kokoro returned empty audio data — skipping playback")
             return
         }
 
-        // Determine language from voice prefix
-        let language: Language = Self.selectedVoice.hasPrefix("b") ? .enGB : .enUS
-
-        do {
-            let (audio, _) = try await Task.detached {
-                try engine.generateAudio(voice: voiceEmbedding, language: language, text: text)
-            }.value
-
-            await playAudio(audio)
-        } catch {
-            logger.error("Kokoro synthesis failed: \(error)")
-        }
+        // Play WAV data using AVAudioPlayer — much simpler than AVAudioEngine
+        // since FluidAudio returns complete WAV-encoded Data.
+        try await playWAVData(audioData)
     }
 
-    /// Stop any current playback.
     func stopPlayback() {
-        playerNode?.stop()
+        audioPlayer?.stop()
+        audioPlayer = nil
+        // Resume any pending continuation so speak() returns
+        playerDelegate?.forceComplete()
+        playerDelegate = nil
     }
 
     // MARK: - Audio Playback
 
-    private func setupAudioEngine() {
-        let engine = AVAudioEngine()
-        let player = AVAudioPlayerNode()
-        engine.attach(player)
+    private func playWAVData(_ data: Data) async throws {
+        // Ensure audio session is active
+        try? AVAudioSession.sharedInstance().setActive(true)
 
-        let format = AVAudioFormat(standardFormatWithSampleRate: Double(KokoroTTS.Constants.samplingRate), channels: 1)!
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        let player = try AVAudioPlayer(data: data)
 
-        do {
-            try engine.start()
-        } catch {
-            logger.error("Audio engine initial start failed: \(error)")
-        }
-
-        audioEngine = engine
-        playerNode = player
-    }
-
-    private func playAudio(_ samples: [Float]) async {
-        guard let engine = audioEngine, let player = playerNode else { return }
-
-        let sampleRate = Double(KokoroTTS.Constants.samplingRate)
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
-            logger.error("Failed to create audio buffer")
-            return
-        }
-
-        buffer.frameLength = buffer.frameCapacity
-        let dst = buffer.floatChannelData![0]
-        samples.withUnsafeBufferPointer { src in
-            guard let baseAddress = src.baseAddress else { return }
-            dst.initialize(from: baseAddress, count: samples.count)
-        }
-
-        if !engine.isRunning {
-            do {
-                try engine.start()
-            } catch {
-                logger.error("Audio engine start failed: \(error)")
-                return
-            }
-        }
-
+        // Use a delegate to bridge callback to async continuation
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionCallbackType: .dataPlayedBack) { _ in
-                resumed.withLock { alreadyResumed in
-                    guard !alreadyResumed else { return }
-                    alreadyResumed = true
-                    Task { @MainActor [weak self] in
-                        self?.onUtteranceFinished?()
-                        continuation.resume()
-                    }
-                }
+            let delegate = PlayerDelegate {
+                continuation.resume()
             }
+            self.playerDelegate = delegate
+            self.audioPlayer = player
+            player.delegate = delegate
             player.play()
         }
+
+        audioPlayer = nil
+        playerDelegate = nil
     }
 
-    // MARK: - Download Implementation
+    // MARK: - Audio Session
 
-    private func performDownload() async throws {
-        // Prevent device sleep during large download
-        await MainActor.run { UIApplication.shared.isIdleTimerDisabled = true }
-        defer {
-            Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = false }
+    private func configureAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .playAndRecord, mode: .default,
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            )
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            logger.error("Audio session configuration failed: \(error)")
         }
-
-        // Download model safetensors from HuggingFace (~160 MB)
-        downloadProgress = 0.05
-        if !FileManager.default.fileExists(atPath: modelFileURL.path) {
-            try await downloadFile(from: ModelConfig.Kokoro.modelDownloadURL, to: modelFileURL, label: "model")
-        }
-        downloadProgress = 0.7
-
-        // Download voices.npz from KokoroTestApp via Git LFS (~14.6 MB)
-        downloadProgress = 0.75
-        if !FileManager.default.fileExists(atPath: voicesFileURL.path) {
-            try await downloadFile(from: ModelConfig.Kokoro.voicesDownloadURL, to: voicesFileURL, label: "voices")
-        }
-        downloadProgress = 0.95
-
-        // Brief pause to let the UI show completion
-        downloadProgress = 1.0
     }
 
-    private func downloadFile(from url: URL, to destination: URL, label: String) async throws {
-        // Clean up any partial/leftover file from a previous failed download
-        try? FileManager.default.removeItem(at: destination)
+    // MARK: - Voice Management
 
-        var lastError: Error?
-        for attempt in 0..<3 {
-            do {
-                try await downloadFileOnce(from: url, to: destination, label: label)
-                return  // success
-            } catch is CancellationError {
-                try? FileManager.default.removeItem(at: destination)
-                throw CancellationError()
-            } catch {
-                lastError = error
-                // Clean up partial download
-                try? FileManager.default.removeItem(at: destination)
-                logger.warning("Kokoro \(label) download attempt \(attempt + 1)/3 failed: \(error)")
-
-                if attempt < 2 {
-                    try await Task.sleep(for: .seconds(2))
-                    try Task.checkCancellation()
-                }
-            }
-        }
-        throw lastError!
-    }
-
-    private func downloadFileOnce(from url: URL, to destination: URL, label: String) async throws {
-        logger.info("Downloading Kokoro \(label) from \(url)")
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 300
-
-        let (tempURL, response) = try await URLSession.shared.download(for: request)
-        try Task.checkCancellation()
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            // Clean up the temp file from URLSession
-            try? FileManager.default.removeItem(at: tempURL)
-            throw KokoroError.downloadFailed(label)
-        }
-
-        try FileManager.default.moveItem(at: tempURL, to: destination)
-
-        // Verify SHA-256 integrity if a real hash is configured
-        let expectedHash = label == "model"
-            ? ModelConfig.Kokoro.modelSHA256
-            : ModelConfig.Kokoro.voicesSHA256
-
-        if expectedHash != "PLACEHOLDER_COMPUTE_ON_FIRST_DOWNLOAD" {
-            let fileData = try Data(contentsOf: destination)
-            let digest = SHA256.hash(data: fileData)
-            let actualHash = digest.map { String(format: "%02x", $0) }.joined()
-
-            if actualHash != expectedHash {
-                try? FileManager.default.removeItem(at: destination)
-                logger.error("SHA-256 mismatch for \(label): expected \(expectedHash), got \(actualHash)")
-                throw KokoroError.integrityCheckFailed(label)
-            }
-            logger.info("Kokoro \(label) SHA-256 verified")
-        }
-
-        logger.info("Kokoro \(label) downloaded successfully")
+    private func populateVoiceNames() {
+        // Keep full voice IDs (af_heart, am_adam, etc.) — FluidAudio needs them
+        // for voice embedding downloads. Stripping the prefix causes 404 errors.
+        cachedVoiceNames = TtsConstants.availableVoices
+            .filter { $0.hasPrefix("af_") || $0.hasPrefix("am_") }
+            .sorted()
     }
 
     // MARK: - Errors
 
     enum KokoroError: LocalizedError {
-        case downloadFailed(String)
-        case voicesEmpty
-        case integrityCheckFailed(String)
+        case engineNotLoaded
 
         var errorDescription: String? {
             switch self {
-            case .downloadFailed(let file):
-                return "Failed to download Kokoro \(file). Please check your connection."
-            case .voicesEmpty:
-                return "Voice data file is empty or corrupted."
-            case .integrityCheckFailed(let file):
-                return "Integrity check failed for Kokoro \(file). The download may be corrupted."
+            case .engineNotLoaded:
+                return "Voice engine is not loaded."
             }
+        }
+    }
+}
+
+// MARK: - AVAudioPlayer Delegate Bridge
+
+/// Bridges AVAudioPlayerDelegate's completion callback to async/await.
+/// Uses OSAllocatedUnfairLock for thread-safe double-resume guard since
+/// audioPlayerDidFinishPlaying fires on an AVFoundation background thread
+/// while forceComplete() fires from @MainActor.
+private final class PlayerDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    private let onFinished: @Sendable () -> Void
+    private let completed = OSAllocatedUnfairLock(initialState: false)
+
+    init(onFinished: @escaping @Sendable () -> Void) {
+        self.onFinished = onFinished
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        complete()
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
+        complete()
+    }
+
+    /// Force-complete the delegate (used by stopPlayback to resume the continuation).
+    func forceComplete() {
+        complete()
+    }
+
+    private func complete() {
+        completed.withLock { done in
+            guard !done else { return }
+            done = true
+            onFinished()
         }
     }
 }

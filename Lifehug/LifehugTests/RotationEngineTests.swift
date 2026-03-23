@@ -207,5 +207,6 @@ struct RotationEngineTests {
         #expect(result!.updatedMarkdown.contains("[x]"))
         #expect(result!.updatedRotation.lastQuestionID == "A1")
         #expect(result!.updatedRotation.questionsAsked == 1)
+        #expect(result!.updatedRotation.questionsAnswered == 1)
     }
 }

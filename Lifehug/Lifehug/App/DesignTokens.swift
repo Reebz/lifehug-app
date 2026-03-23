@@ -14,14 +14,15 @@ enum Theme {
     static let sageGreen = Color(hex: 0x7BA17D)
     static let amber = Color(hex: 0xD4A855)
     static let mutedRose = Color(hex: 0xC47070)
-    static let recordingRed = Color(hex: 0xE53E3E)
+    static let recordingRed = Color(hex: 0xDC3545)
+    static let speakingGreen = Color(hex: 0x28A745)
     static let cardBackground = Color.white
     static let cardShadow = Color.black.opacity(0.05)
 
     // MARK: - Typography (Dynamic Type)
 
     static let displayFont: Font = .system(.largeTitle, design: .serif).weight(.light)
-    static let titleFont: Font = .system(.title, design: .serif)
+    static let titleFont: Font = .system(size: 28, weight: .regular, design: .serif)
     static let title2Font: Font = .system(.title2, design: .serif)
     static let title3Font: Font = .system(.title3, design: .serif)
     static let headlineFont: Font = .system(.headline, design: .serif)
@@ -49,5 +50,18 @@ extension Color {
             blue: Double(hex & 0xFF) / 255.0,
             opacity: opacity
         )
+    }
+}
+
+// MARK: - Visibility Modifier
+
+extension View {
+    /// Hides a view while preserving its layout space. The view remains in the
+    /// hierarchy but is invisible, non-interactive, and hidden from VoiceOver.
+    /// Use instead of conditional `if` to prevent layout jumps.
+    func visible(_ isVisible: Bool) -> some View {
+        self.opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+            .accessibilityHidden(!isVisible)
     }
 }

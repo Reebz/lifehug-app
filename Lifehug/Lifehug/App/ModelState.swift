@@ -39,8 +39,10 @@ final class ModelState {
         isLoaded = true
         return
         #else
-        if downloader.isModelCached {
-            // Model files exist — try to load from cache
+        // If any model is cached, auto-set the selection to match and load it.
+        // This handles returning users and skips the model picker.
+        if let cached = downloader.cachedModelOption {
+            ModelConfig.LLM.selectedModel = cached
             status = .loading
             await downloader.loadCachedModel()
             syncFromDownloader()
@@ -73,6 +75,7 @@ final class ModelState {
     /// Delete cached model files and reset to not-downloaded state.
     func deleteModelCache() {
         downloader.deleteCache()
+        ModelConfig.LLM.clearSelection()  // Reset so model picker re-appears
         syncFromDownloader()
     }
 

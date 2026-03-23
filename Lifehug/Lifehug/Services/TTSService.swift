@@ -6,18 +6,12 @@ import os
 @MainActor
 final class TTSService {
     var isSpeaking: Bool = false
-    var useSystemTTS: Bool = true
     var forceDegradedToSystem: Bool = false
-
-    /// Called when all queued sentences have finished speaking.
-    /// VoicePipeline uses this to auto-resume listening.
-    var onAllSpeechFinished: (@MainActor () -> Void)?
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "TTS")
     private let synthesizer = AVSpeechSynthesizer()
     private var delegate: TTSDelegate?
-    private var sentenceQueue: [String] = []
-    private var speakingTask: Task<Void, Never>?
+    private var speakGeneration: Int = 0
     private(set) var kokoroManager: KokoroManager?
     private static var cachedVoice: AVSpeechSynthesisVoice?
 
@@ -32,40 +26,91 @@ final class TTSService {
         kokoroManager = manager
     }
 
-    init() {
-        delegate = TTSDelegate { @Sendable [weak self] in
-            Task { @MainActor in
-                self?.onUtteranceFinished()
-            }
-        }
-        synthesizer.delegate = delegate
-    }
+    init() {}
 
     func speak(_ sentence: String) async {
         if useKokoro {
             isSpeaking = true
-            await kokoroManager?.speak(sentence)
+            do {
+                try await kokoroManager?.speak(sentence)
+            } catch {
+                logger.warning("Kokoro synthesis failed, degrading to system TTS: \(error)")
+                kokoroManager?.stopPlayback()
+                forceDegradedToSystem = true
+                // Fall through to system TTS for this sentence
+                isSpeaking = false
+                await speakViaSystem(sentence)
+                return
+            }
             isSpeaking = false
-            onAllSpeechFinished?()
             return
         }
-        sentenceQueue.append(sentence)
-        if !isSpeaking {
-            await processSentenceQueue()
+        await speakViaSystem(sentence)
+    }
+
+    private func speakViaSystem(_ sentence: String) async {
+        isSpeaking = true
+        speakGeneration += 1
+        let generation = speakGeneration
+
+        let utterance = AVSpeechUtterance(string: sentence)
+        utterance.voice = Self.bestAvailableVoice()
+        utterance.rate = 0.53
+        utterance.pitchMultiplier = 1.0
+        utterance.postUtteranceDelay = 0.15
+
+        // Timeout via cancellable sleep task — avoids task group `sending` issues
+        // with non-Sendable AVSpeechUtterance and MainActor-isolated self.
+        let timeoutTask = Task {
+            try await Task.sleep(for: .seconds(15))
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            self.delegate = TTSDelegate { @Sendable in
+                resumed.withLock { alreadyResumed in
+                    guard !alreadyResumed else { return }
+                    alreadyResumed = true
+                    timeoutTask.cancel()
+                    Task { @MainActor in continuation.resume() }
+                }
+            }
+            self.synthesizer.delegate = self.delegate
+            self.synthesizer.speak(utterance)
+
+            // Fire timeout: if sleep completes (not cancelled), force-resume
+            Task { [weak self] in
+                do {
+                    try await timeoutTask.value
+                    // Timeout expired — force resume
+                    resumed.withLock { alreadyResumed in
+                        guard !alreadyResumed else { return }
+                        alreadyResumed = true
+                        Task { @MainActor in
+                            self?.logger.warning("System TTS timed out after 15s — stopping synthesizer")
+                            self?.synthesizer.stopSpeaking(at: .immediate)
+                            continuation.resume()
+                        }
+                    }
+                } catch {
+                    // Cancelled — speech completed normally, nothing to do
+                }
+            }
+        }
+        // Timeout handling is inside the continuation above
+        if generation == speakGeneration {
+            isSpeaking = false
         }
     }
 
     func stop() {
-        sentenceQueue.removeAll()
+        speakGeneration += 1
         kokoroManager?.stopPlayback()
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
-        speakingTask?.cancel()
-        speakingTask = nil
+        // The delegate's double-resume guard handles any pending continuation safely.
     }
 
     func degradeToSystemTTS() {
-        useSystemTTS = true
         forceDegradedToSystem = true
         logger.warning("Degraded to system TTS (memory pressure)")
     }
@@ -74,36 +119,6 @@ final class TTSService {
     func unloadKokoroModel() {
         kokoroManager?.unloadEngine()
         logger.info("Kokoro model unloaded via TTSService (memory pressure)")
-    }
-
-    private func processSentenceQueue() async {
-        guard !sentenceQueue.isEmpty else {
-            isSpeaking = false
-            onAllSpeechFinished?()
-            return
-        }
-
-        isSpeaking = true
-        let sentence = sentenceQueue.removeFirst()
-
-        let utterance = AVSpeechUtterance(string: sentence)
-        utterance.voice = Self.bestAvailableVoice()
-        utterance.rate = 0.48 // Slightly unhurried for warm interviewer tone
-        utterance.pitchMultiplier = 1.0 // Natural pitch
-        utterance.postUtteranceDelay = 0.15 // Brief pause between sentences
-
-        synthesizer.speak(utterance)
-    }
-
-    private func onUtteranceFinished() {
-        if !sentenceQueue.isEmpty {
-            Task {
-                await processSentenceQueue()
-            }
-        } else {
-            isSpeaking = false
-            onAllSpeechFinished?()
-        }
     }
 
     /// Select the best available on-device voice for the given language.
@@ -117,33 +132,26 @@ final class TTSService {
             .filter { $0.language == language }
 
         let preferredNames = ["Zoe", "Ava", "Joelle", "Noelle"]
-        for name in preferredNames {
-            if let match = voices.first(where: { $0.name.contains(name) && $0.quality == .premium }) {
-                cachedVoice = match
-                return match
+        let preferredQualities: [AVSpeechSynthesisVoiceQuality] = [.premium, .enhanced, .default]
+
+        // Search preferred names at each quality tier
+        for quality in preferredQualities {
+            for name in preferredNames {
+                if let match = voices.first(where: { $0.name.contains(name) && $0.quality == quality }) {
+                    cachedVoice = match
+                    return match
+                }
             }
         }
-        for name in preferredNames {
-            if let match = voices.first(where: { $0.name.contains(name) && $0.quality == .enhanced }) {
-                cachedVoice = match
-                return match
-            }
-        }
-        for name in preferredNames {
-            if let match = voices.first(where: { $0.name.contains(name) }) {
+
+        // Fall back to any voice by quality
+        for quality in [AVSpeechSynthesisVoiceQuality.premium, .enhanced] {
+            if let match = voices.first(where: { $0.quality == quality }) {
                 cachedVoice = match
                 return match
             }
         }
 
-        if let premium = voices.first(where: { $0.quality == .premium }) {
-            cachedVoice = premium
-            return premium
-        }
-        if let enhanced = voices.first(where: { $0.quality == .enhanced }) {
-            cachedVoice = enhanced
-            return enhanced
-        }
         let fallback = AVSpeechSynthesisVoice(language: language)
         cachedVoice = fallback
         return fallback

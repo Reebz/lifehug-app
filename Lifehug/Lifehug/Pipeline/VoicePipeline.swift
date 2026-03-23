@@ -75,6 +75,9 @@ final class VoicePipeline {
         activeTask = nil
         state = .idle
         removeAudioObservers()
+        // Deactivate audio session now that the voice conversation is truly over.
+        // This lets other apps (music, podcasts) resume their audio.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     /// Start observing audio interruptions and route changes.
@@ -89,24 +92,11 @@ final class VoicePipeline {
         autoReopenMic = true
         observeInterruptions()
         observeRouteChanges()
-        ttsService.onAllSpeechFinished = { [weak self] in
-            guard let self = self, self.autoReopenMic else { return }
-            if self.state == .speaking || self.state == .processing {
-                self.state = .idle
-                Task { @MainActor [weak self] in
-                    // Brief delay to avoid audio feedback between TTS output and mic input
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard let self = self, self.autoReopenMic, self.state == .idle else { return }
-                    self.startListening()
-                }
-            }
-        }
     }
 
     /// Unwire auto-reopen and remove audio observers.
     func unwireAutoReopen() {
         autoReopenMic = false
-        ttsService.onAllSpeechFinished = nil
         removeAudioObservers()
     }
 
@@ -124,22 +114,8 @@ final class VoicePipeline {
         logger.info("Pipeline: \(String(describing: self.state)) -> \(String(describing: newState))")
         activeTask?.cancel()
         state = newState
-        activeTask = Task { await runState(newState) }
-    }
-
-    private func runState(_ state: PipelineState) async {
-        switch state {
-        case .idle:
-            break
-
-        case .listening:
-            await runListening()
-
-        case .processing:
-            break // Processing is kicked off by runListening or processTextInput
-
-        case .speaking:
-            break // Speaking is handled by TTS callbacks
+        if newState == .listening {
+            activeTask = Task { await runListening() }
         }
     }
 
@@ -150,7 +126,7 @@ final class VoicePipeline {
             await sttService.requestAuthorization()
         }
         guard sttService.isAuthorized else {
-            error = "Speech recognition not authorized"
+            error = "Microphone access not authorized"
             state = .idle
             return
         }
@@ -165,6 +141,13 @@ final class VoicePipeline {
 
         for await transcript in stream {
             guard !Task.isCancelled else { return }
+            // Cap transcript length to prevent unbounded memory growth
+            if transcript.count > 50_000 {
+                logger.warning("Transcript exceeded 50K characters — stopping recording")
+                sttService.stopListening()
+                partialTranscript = String(transcript.prefix(50_000))
+                break
+            }
             partialTranscript = transcript
 
             // Check for termination phrase at end of transcript
@@ -243,37 +226,63 @@ final class VoicePipeline {
         activeTask?.cancel()
         activeTask = Task {
             do {
-                let stream = llmService.streamResponse(to: text)
+                // IMPORTANT: LLM (MLX) and Kokoro TTS (MLX) both use Metal GPU.
+                // Running them concurrently on separate threads crashes the GPU driver.
+                // Solution: collect ALL LLM output first, THEN synthesize/speak sentences.
+                // This serializes Metal GPU access at the cost of slightly delayed first speech.
                 var fullResponse = ""
+                var sentences: [String] = []
 
+                // Phase 1: Generate complete LLM response (Metal GPU for LLM only)
+                let stream = llmService.streamResponse(to: text)
                 for try await chunk in stream {
                     guard !Task.isCancelled else { return }
-
                     fullResponse += chunk
                     responseChunks = fullResponse
                     sentenceBuffer.append(chunk)
 
-                    // Check for complete sentences to send to TTS
                     while let sentence = sentenceBuffer.extractSentence() {
-                        state = .speaking
-                        await ttsService.speak(sentence)
+                        sentences.append(sentence)
                     }
                 }
 
                 // Flush remaining buffer
                 let remaining = sentenceBuffer.flush()
                 if !remaining.isEmpty {
+                    sentences.append(remaining)
+                }
+
+                guard !Task.isCancelled else { return }
+
+                self.logger.info("LLM complete: \(sentences.count) sentences")
+
+                // Phase 2: Speak sentences in batches of 2-3 for better prosody.
+                // Kokoro TTS needs multi-sentence context for natural intonation.
+                var batch = ""
+                var batchCount = 0
+                for sentence in sentences {
+                    guard !Task.isCancelled else { break }
+                    batch += (batch.isEmpty ? "" : " ") + sentence
+                    batchCount += 1
+                    if batchCount >= 3 {
+                        state = .speaking
+                        await ttsService.speak(batch)
+                        guard !Task.isCancelled else { break }
+                        batch = ""
+                        batchCount = 0
+                    }
+                }
+                if !batch.isEmpty && !Task.isCancelled {
                     state = .speaking
-                    await ttsService.speak(remaining)
+                    await ttsService.speak(batch)
                 }
 
                 onResponseGenerated?(fullResponse)
 
                 // Auto-reopen mic for conversation loop
                 if self.autoReopenMic {
-                    self.state = .idle
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled, self.autoReopenMic, self.state == .idle else { return }
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard !Task.isCancelled, self.autoReopenMic else { return }
                     self.startListening()
                 }
 
@@ -296,7 +305,7 @@ final class VoicePipeline {
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: AVAudioSession.sharedInstance(),
-            queue: nil
+            queue: .main
         ) { @Sendable [weak self] notification in
             // Extract Sendable values before crossing isolation boundary
             let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
@@ -356,7 +365,7 @@ final class VoicePipeline {
         routeChangeObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { @Sendable [weak self] notification in
             // Extract Sendable value before crossing isolation boundary
             let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
@@ -402,14 +411,9 @@ final class VoicePipeline {
             // Degrade to system TTS but keep LLM loaded
             logger.warning("Elevated memory pressure (\(MemoryMonitor.availableMB)MB) — degrading to system TTS")
             ttsService.degradeToSystemTTS()
-        case .critical:
+        case .critical, .emergency:
             // Unload Kokoro model entirely and fall back to system TTS
-            logger.error("Critical memory pressure (\(MemoryMonitor.availableMB)MB) — unloading Kokoro")
-            ttsService.degradeToSystemTTS()
-            ttsService.unloadKokoroModel()
-        case .emergency:
-            // LLM might get killed by OS — log for diagnostics
-            logger.critical("Emergency memory pressure: \(MemoryMonitor.availableMB)MB available — OS may terminate app")
+            logger.error("Critical/emergency memory pressure (\(MemoryMonitor.availableMB)MB) — unloading Kokoro")
             ttsService.degradeToSystemTTS()
             ttsService.unloadKokoroModel()
         }
