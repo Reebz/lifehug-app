@@ -4,7 +4,6 @@ import FluidAudio
 import os
 
 /// On-device speech-to-text using FluidAudio's Parakeet EOU streaming ASR.
-/// Replaces Apple's SFSpeechRecognizer — no 60-second limit, no aggressive endpointing.
 @Observable
 @MainActor
 final class STTService {
@@ -12,12 +11,10 @@ final class STTService {
     var isRecording: Bool = false
     var partialTranscript: String = ""
     var error: String?
-    /// Whether the ASR model is loaded and ready for recording.
     var isASRReady: Bool { asrManager != nil }
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "STT")
 
-    /// The FluidAudio ASR manager — created once, reused across sessions via reset().
     nonisolated(unsafe) private var asrManager: StreamingEouAsrManager?
 
     private var audioEngine: AVAudioEngine?
@@ -28,18 +25,19 @@ final class STTService {
 
     // MARK: - Model Loading
 
-    /// Load the ASR model. Call at app launch — the manager persists across sessions.
     func loadASRModel() async {
         guard asrManager == nil else { return }
         do {
-            logger.info("Loading FluidAudio ASR model...")
-            // Use .ms320 — halves WER (4.87% vs 8.29% for .ms160) with only 160ms extra latency.
+            print("[STT] Loading FluidAudio ASR model...")
+            logger.fault("[STT] Loading FluidAudio ASR model...")
             let manager = StreamingEouAsrManager(chunkSize: .ms320, eouDebounceMs: 1280)
             try await manager.loadModelsFromHuggingFace()
             self.asrManager = manager
-            logger.info("FluidAudio ASR model loaded successfully")
+            print("[STT] ✅ ASR model loaded successfully")
+            logger.fault("[STT] ✅ ASR model loaded successfully")
         } catch {
-            logger.error("Failed to load ASR model: \(error)")
+            print("[STT] ❌ Failed to load ASR model: \(error)")
+            logger.fault("[STT] ❌ Failed to load ASR model: \(error)")
             self.error = "Voice recognition model failed to download. Check your connection and restart."
         }
     }
@@ -61,6 +59,7 @@ final class STTService {
         if !micGranted {
             error = "Microphone access not authorized. Please enable in Settings."
         }
+        print("[STT] Mic authorized: \(micGranted)")
         #endif
     }
 
@@ -89,6 +88,7 @@ final class STTService {
         }
         #else
         self.error = nil
+        print("[STT] startListening() called, asrManager=\(asrManager != nil)")
 
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
@@ -99,9 +99,6 @@ final class STTService {
             }
         }
 
-        // Start recognition in a Task so we can await the async ASR setup
-        // (reset + callback wiring) BEFORE starting the audio engine.
-        // Store the task so stopListening() can cancel it if called before setup completes.
         setupTask = Task {
             await self.startRecognitionAsync()
             self.setupTask = nil
@@ -115,28 +112,23 @@ final class STTService {
 
     func stopListening(reason: String = "unknown") {
         guard isRecording || setupTask != nil else { return }
-        logger.info("stopListening — reason: \(reason)")
+        print("[STT] stopListening — reason: \(reason)")
 
-        // Cancel the setup task if it hasn't finished yet (prevents engine
-        // starting after stopListening was called — race condition H1)
         setupTask?.cancel()
         setupTask = nil
-
         isRecording = false
 
-        // Stop audio capture
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        // Get final transcript from ASR — the partial callback may have already yielded,
-        // but finish() does a final decoding pass that may produce additional tokens.
         let manager = asrManager
         let cont = continuation
         continuation = nil
         Task {
             do {
                 let finalText = try await manager?.finish()
+                print("[STT] finish() returned: '\(finalText ?? "nil")' (\(finalText?.count ?? 0) chars)")
                 await MainActor.run {
                     if let finalText, !finalText.isEmpty {
                         self.partialTranscript = finalText
@@ -145,8 +137,8 @@ final class STTService {
                     cont?.finish()
                 }
             } catch {
+                print("[STT] ❌ finish() failed: \(error)")
                 await MainActor.run {
-                    self.logger.error("ASR finish() failed: \(error)")
                     cont?.finish()
                 }
             }
@@ -155,97 +147,89 @@ final class STTService {
 
     // MARK: - Private: Async Recognition Setup
 
-    /// Sets up the ASR manager, wires callbacks, THEN starts the audio engine.
-    /// This ensures callbacks are registered before any audio buffers arrive.
     private func startRecognitionAsync() async {
-        // Check if stopListening() was called before we started
         guard !Task.isCancelled else {
-            logger.info("Setup cancelled before starting")
+            print("[STT] Setup cancelled before starting")
             return
         }
 
-        // Guard: ASR model must be loaded
+        print("[STT] startRecognitionAsync — asrManager=\(asrManager != nil)")
+
         guard let manager = asrManager else {
-            logger.error("ASR model not loaded — attempting retry")
+            print("[STT] ❌ ASR model not loaded — attempting retry")
             await loadASRModel()
             guard asrManager != nil else {
+                print("[STT] ❌ Retry failed — ASR still nil")
                 error = "Voice recognition not available. Please restart the app."
                 continuation?.finish()
                 return
             }
-            // Retry with the now-loaded manager
             await startRecognitionAsync()
             return
         }
 
         do {
-            // Verify microphone hardware
             let audioSession = AVAudioSession.sharedInstance()
             guard audioSession.isInputAvailable else {
                 throw STTError.microphoneUnavailable
             }
 
-            // Ensure audio session is configured for recording
             if audioSession.category != .playAndRecord {
                 try audioSession.setCategory(.playAndRecord, mode: .default, options: [
                     .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
                 ])
             }
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            print("[STT] Audio session active, category=\(audioSession.category.rawValue)")
 
-            // Clean up prior state
             audioEngine?.stop()
             audioEngine?.inputNode.removeTap(onBus: 0)
 
-            // 1. Reset ASR state FIRST (await — not fire-and-forget)
+            // 1. Reset ASR state FIRST
             await manager.reset()
+            print("[STT] ASR manager reset complete")
 
-            // 2. Wire callbacks BEFORE starting audio (await — not fire-and-forget)
+            // 2. Wire callbacks BEFORE audio starts
             await manager.setPartialCallback { [weak self] text in
+                print("[STT] 📝 Partial callback fired: '\(text.prefix(50))...' (\(text.count) chars)")
                 Task { @MainActor in
                     guard let self else { return }
                     self.partialTranscript = text
                     self.continuation?.yield(text)
                 }
             }
-            await manager.setEouCallback { [weak self] text in
-                Task { @MainActor in
-                    self?.logger.info("EOU detected: \(text.count) chars")
-                }
+            await manager.setEouCallback { text in
+                print("[STT] 🔚 EOU callback fired: \(text.count) chars")
             }
+            print("[STT] Callbacks wired")
 
             // 3. NOW start the audio engine and tap
             let engine = AVAudioEngine()
             self.audioEngine = engine
 
             let inputNode = engine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
+            print("[STT] Input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch, \(inputFormat.commonFormat.rawValue)")
+
             nonisolated(unsafe) let unsafeManager = manager
-            nonisolated(unsafe) var errorLogged = false
+            nonisolated(unsafe) var bufferCount = 0
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { @Sendable buffer, _ in
+                bufferCount += 1
                 let box = SendableBuffer(buffer)
-                Task {
-                    do {
-                        try await unsafeManager.process(audioBuffer: box.buffer)
-                    } catch {
-                        // Log the FIRST error — don't spam (fires ~47 times/sec)
-                        if !errorLogged {
-                            errorLogged = true
-                            Task { @MainActor in
-                                Logger(subsystem: "com.lifehug.app", category: "STT")
-                                    .error("ASR process(audioBuffer:) failed: \(error)")
-                            }
-                        }
-                    }
+                Task { try? await unsafeManager.process(audioBuffer: box.buffer) }
+                // Log every ~5 seconds
+                if bufferCount % 235 == 0 {
+                    print("[STT] 🎤 Audio tap alive: \(bufferCount) buffers fed to ASR")
                 }
             }
 
             engine.prepare()
             try engine.start()
             isRecording = true
-            logger.info("Recording started with FluidAudio ASR")
+            print("[STT] ✅ Recording started — engine running, tap installed")
 
         } catch {
-            logger.error("Failed to start recognition: \(error)")
+            print("[STT] ❌ startRecognitionAsync failed: \(error)")
             self.error = "Failed to start recording: \(error.localizedDescription)"
             continuation?.finish()
         }
@@ -254,8 +238,6 @@ final class STTService {
 
 // MARK: - Sendable Buffer Wrapper
 
-/// Wraps AVAudioPCMBuffer (non-Sendable) for crossing actor boundaries.
-/// Safe because each buffer is created fresh in the audio tap and consumed once.
 private struct SendableBuffer: @unchecked Sendable {
     let buffer: AVAudioPCMBuffer
     init(_ buffer: AVAudioPCMBuffer) {
