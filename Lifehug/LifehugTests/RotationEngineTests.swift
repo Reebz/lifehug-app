@@ -209,4 +209,53 @@ struct RotationEngineTests {
         #expect(result!.updatedRotation.questionsAsked == 1)
         #expect(result!.updatedRotation.questionsAnswered == 1)
     }
+
+    @Test("Empty questions array returns nil")
+    func emptyQuestionsReturnsNil() {
+        let rotation = RotationState()
+        let picked = RotationEngine.pickNextQuestion(
+            questions: [],
+            categories: categories,
+            rotation: rotation
+        )
+        #expect(picked == nil)
+    }
+
+    @Test("Single category picks first unanswered question")
+    func singleCategoryPicksFirst() {
+        let questions = [
+            makeQuestion("A1"),
+            makeQuestion("A2"),
+        ]
+        let singleCat: [Character: Category] = [
+            "A": Category(id: "A", name: "Origins", group: .main),
+        ]
+        let rotation = RotationState()
+
+        let picked = RotationEngine.pickNextQuestion(
+            questions: questions,
+            categories: singleCat,
+            rotation: rotation
+        )
+
+        #expect(picked?.id == "A1")
+    }
+
+    @Test("markAnswered sets lastAskedAt to an ISO 8601 timestamp")
+    func markAnsweredSetsLastAskedAt() {
+        let markdown = "- [ ] B1: When did you first feel like you had agency?"
+        let rotation = RotationState()
+
+        let result = RotationEngine.markAnswered(
+            questionID: "B1",
+            markdown: markdown,
+            rotation: rotation
+        )
+
+        #expect(result != nil)
+        let timestamp = result!.updatedRotation.lastAskedAt
+        #expect(timestamp != nil)
+        // ISO 8601 timestamps contain a "T" separator between date and time
+        #expect(timestamp!.contains("T"))
+    }
 }

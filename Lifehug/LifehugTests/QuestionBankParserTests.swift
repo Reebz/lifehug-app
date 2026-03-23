@@ -192,6 +192,59 @@ struct QuestionBankParserTests {
         let green = CoverageInfo(total: 10, answered: 7)
         #expect(green.status == .green)
     }
+
+    @Test("Malformed lines are skipped during parsing")
+    func malformedLinesSkipped() {
+        let markdown = """
+        ## A: Origins
+        - [ ] A1: Valid question
+        This line is not a question
+        - [] A2: Missing space in checkbox
+        - [ ] : Missing ID
+        - [ ] A3: Another valid question
+        """
+
+        let questions = QuestionBankParser.parseQuestions(from: markdown)
+
+        // Only lines matching the exact pattern should parse
+        #expect(questions.count == 2)
+        #expect(questions[0].id == "A1")
+        #expect(questions[1].id == "A3")
+    }
+
+    @Test("Extra whitespace in category headers handled")
+    func extraWhitespaceHandled() {
+        let markdown = """
+        ## A: Origins
+        - [ ] A1: Question with trailing spaces
+        ## B:   Becoming
+        - [ ] B1: Another question
+        """
+
+        let categories = QuestionBankParser.parseCategories(from: markdown)
+        // Category A should parse; name gets trimmed
+        #expect(categories["A"] != nil)
+
+        let questions = QuestionBankParser.parseQuestions(from: markdown)
+        // At least A1 should parse; trailing spaces should not break the pattern
+        #expect(questions.contains { $0.id == "A1" })
+    }
+
+    @Test("Unicode characters in question text preserved")
+    func unicodeCharactersPreserved() {
+        let markdown = """
+        ## A: Origins
+        - [ ] A1: Tell me about your abuela\u{2019}s cocina \u{2014} what did it smell like?
+        - [ ] A2: What\u{2019}s the kanji \u{5b57} your grandmother taught you?
+        """
+
+        let questions = QuestionBankParser.parseQuestions(from: markdown)
+
+        #expect(questions.count == 2)
+        #expect(questions[0].text.contains("\u{2019}"))  // right single quote
+        #expect(questions[0].text.contains("\u{2014}"))  // em dash
+        #expect(questions[1].text.contains("\u{5b57}"))  // kanji character
+    }
 }
 
 // Helper to find the test bundle

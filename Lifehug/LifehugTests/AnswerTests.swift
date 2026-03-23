@@ -105,6 +105,96 @@ struct AnswerTests {
         #expect(separators.count >= 2)
     }
 
+    // MARK: - Additional parsing tests
+
+    @Test("Malformed header returns nil")
+    func malformedHeaderReturnsNil() {
+        let malformed = """
+        Not a valid header line
+        **Category:** A (Origins) | **Pass:** 1
+        **Asked:** 2026-03-01 | **Answered:** 2026-03-01
+
+        ---
+
+        Some answer text.
+
+        ---
+        """
+
+        let parsed = Answer.fromMarkdown(malformed)
+        #expect(parsed == nil)
+    }
+
+    @Test("Empty string returns nil")
+    func emptyStringReturnsNil() {
+        #expect(Answer.fromMarkdown("") == nil)
+        #expect(Answer.fromMarkdown("   ") == nil)
+        #expect(Answer.fromMarkdown("\n") == nil)
+    }
+
+    @Test("Multiline answer text survives roundtrip")
+    func multilineAnswerRoundtrip() {
+        let multilineText = """
+        First paragraph about childhood.
+
+        Second paragraph about school years.
+        This one has multiple lines within it
+        because the memory was detailed.
+
+        Third paragraph wrapping up.
+        """
+
+        let answer = Answer(
+            questionID: "A2",
+            questionText: "Tell me about where you grew up.",
+            categoryLetter: "A",
+            categoryName: "Origins",
+            passNumber: 1,
+            askedDate: makeDate("2026-03-10"),
+            answeredDate: makeDate("2026-03-10"),
+            answerText: multilineText,
+            followUpQuestions: [],
+            source: .text
+        )
+
+        let markdown = answer.toMarkdown()
+        let parsed = Answer.fromMarkdown(markdown)
+
+        #expect(parsed != nil)
+        #expect(parsed!.answerText.contains("First paragraph about childhood."))
+        #expect(parsed!.answerText.contains("Second paragraph about school years."))
+        #expect(parsed!.answerText.contains("Third paragraph wrapping up."))
+    }
+
+    @Test("Special characters in answer text survive roundtrip")
+    func specialCharactersRoundtrip() {
+        let specialText = "She said, \"You'll never understand\" — and she was right. Cost me $500 & a lot of pride (100%)."
+
+        let answer = Answer(
+            questionID: "D1",
+            questionText: "What's a lesson you learned the hard way?",
+            categoryLetter: "D",
+            categoryName: "Purpose & Calling",
+            passNumber: 1,
+            askedDate: makeDate("2026-03-12"),
+            answeredDate: makeDate("2026-03-12"),
+            answerText: specialText,
+            followUpQuestions: [],
+            source: .text
+        )
+
+        let markdown = answer.toMarkdown()
+        let parsed = Answer.fromMarkdown(markdown)
+
+        #expect(parsed != nil)
+        #expect(parsed!.answerText.contains("\"You'll never understand\""))
+        #expect(parsed!.answerText.contains("$500"))
+        #expect(parsed!.answerText.contains("&"))
+        #expect(parsed!.answerText.contains("(100%)"))
+    }
+
+    // MARK: - Helpers
+
     private func makeDate(_ string: String) -> Date {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
