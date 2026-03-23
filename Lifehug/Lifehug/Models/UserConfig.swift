@@ -9,4 +9,15 @@ struct UserConfig: Codable {
         let name: String
         let type: String
     }
+
+    init(name: String = "friend", projects: [Project] = []) {
+        self.name = name
+        self.projects = projects
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "friend"
+        projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
+    }
 }
