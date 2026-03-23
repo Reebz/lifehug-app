@@ -1,8 +1,10 @@
 import Foundation
-import Speech
 import AVFoundation
+import FluidAudio
 import os
 
+/// On-device speech-to-text using FluidAudio's Parakeet EOU streaming ASR.
+/// Replaces Apple's SFSpeechRecognizer — no 60-second limit, no aggressive endpointing.
 @Observable
 @MainActor
 final class STTService {
@@ -12,71 +14,55 @@ final class STTService {
     var error: String?
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "STT")
-    private var recognizer: SFSpeechRecognizer?
-    private var audioEngine: AVAudioEngine?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var continuation: AsyncStream<String>.Continuation?
-    private var silenceTimer: Task<Void, Never>?
-    private var shouldKeepListening: Bool = false
-    private var accumulatedTranscript: String = ""
-    private var taskGeneration: Int = 0
-    /// Shared reference accessible from the @Sendable audio tap callback.
-    /// The tap outlives individual recognition requests during chaining.
-    /// SAFETY: nonisolated(unsafe) is required because the audio tap callback runs on
-    /// the real-time render thread (not the main actor). Writes only occur on @MainActor
-    /// (startRecognition, chainRecognitionRequest, stopListening). The tap reads via
-    /// optional chaining — a nil check races benignly.
-    /// ⚠️ DO NOT add a Mutex or lock here — the audio render thread is real-time and must
-    /// never block. A lock would cause audio glitches or priority inversion.
-    nonisolated(unsafe) private var sharedRequest: SFSpeechAudioBufferRecognitionRequest?
 
-    init() {
-        recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    /// The FluidAudio ASR manager — created once, reused across sessions via reset().
+    /// nonisolated(unsafe) because StreamingEouAsrManager is an actor and we access it
+    /// from @MainActor methods via await. No concurrent access.
+    nonisolated(unsafe) private var asrManager: StreamingEouAsrManager?
+
+    private var audioEngine: AVAudioEngine?
+    private var continuation: AsyncStream<String>.Continuation?
+
+    init() {}
+
+    // MARK: - Model Loading
+
+    /// Load the ASR model. Call once at app launch — the manager persists and is
+    /// reused across recording sessions via reset().
+    func loadASRModel() async {
+        guard asrManager == nil else { return }
+        do {
+            let manager = StreamingEouAsrManager(chunkSize: .ms160, eouDebounceMs: 1280)
+            try await manager.loadModelsFromHuggingFace()
+            self.asrManager = manager
+            logger.info("FluidAudio ASR model loaded")
+        } catch {
+            logger.error("Failed to load ASR model: \(error)")
+            // Not fatal — we'll try again on first startListening()
+        }
     }
+
+    // MARK: - Authorization
 
     func requestAuthorization() async {
         #if targetEnvironment(simulator)
-        // Simulator doesn't support on-device speech recognition.
         isAuthorized = true
         return
         #else
-        // Request microphone permission first
-        // IMPORTANT: Use nonisolated helpers to avoid Swift 6 @MainActor isolation
-        // leaking into callback closures that run on background threads (TCC framework).
+        // Only microphone permission needed — FluidAudio runs on-device, no Speech framework.
         let micGranted: Bool
         if #available(iOS 17, *) {
             micGranted = await AVAudioApplication.requestRecordPermission()
         } else {
             micGranted = await Self.requestMicPermission()
         }
-        guard micGranted else {
+        isAuthorized = micGranted
+        if !micGranted {
             error = "Microphone access not authorized. Please enable in Settings."
-            isAuthorized = false
-            return
-        }
-
-        // Then request speech recognition permission
-        let status = await Self.requestSpeechPermission()
-        isAuthorized = (status == .authorized)
-        if !isAuthorized {
-            error = "Speech recognition not authorized. Please enable in Settings."
         }
         #endif
     }
 
-    /// Wraps the callback-based speech authorization in a nonisolated context so the
-    /// closure does NOT inherit @MainActor isolation. Without this, Swift 6 runtime
-    /// enforcement crashes because TCC calls the callback on a background thread.
-    private nonisolated static func requestSpeechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
-    }
-
-    /// Same pattern for microphone permission (pre-iOS 17 path).
     private nonisolated static func requestMicPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
@@ -85,10 +71,10 @@ final class STTService {
         }
     }
 
+    // MARK: - Start Listening
+
     func startListening() -> AsyncStream<String> {
         #if targetEnvironment(simulator)
-        // Simulator has no microphone or on-device speech model.
-        // Return a mock transcript after a short delay.
         return AsyncStream<String> { continuation in
             Task { @MainActor in
                 self.isRecording = true
@@ -101,16 +87,12 @@ final class STTService {
             }
         }
         #else
-        // Clear any previous error
         self.error = nil
-        self.accumulatedTranscript = ""
-        self.shouldKeepListening = true
 
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
             continuation.onTermination = { @Sendable _ in
                 Task { @MainActor in
-                    self.shouldKeepListening = false
                     self.stopListening(reason: "stream onTermination")
                 }
             }
@@ -122,7 +104,6 @@ final class STTService {
             logger.error("Failed to start recognition: \(error)")
             self.error = "Failed to start speech recognition: \(error.localizedDescription)"
             isRecording = false
-            shouldKeepListening = false
             continuation?.finish()
         }
 
@@ -130,59 +111,45 @@ final class STTService {
         #endif
     }
 
+    // MARK: - Stop Listening
+
     func stopListening(reason: String = "unknown") {
-        logger.info("stopListening called — reason: \(reason), isRecording: \(self.isRecording)")
-        // Invalidate any in-flight callback Tasks (prevents stale chainRecognitionRequest)
-        taskGeneration += 1
+        guard isRecording else { return }
+        logger.info("stopListening — reason: \(reason)")
 
-        silenceTimer?.cancel()
-        silenceTimer = nil
-        shouldKeepListening = false
-
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-        sharedRequest = nil
-
+        // Stop audio capture
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        // Do NOT call setActive(false) here — the audio session must stay active
-        // for TTS playback that follows immediately. Session is deactivated only
-        // when the entire voice conversation ends (VoicePipeline.stopAll()).
-
-        // Safety: ensure the stream consumer isn't left suspended
-        continuation?.finish()
-        continuation = nil
+        // Get final transcript from ASR (fire-and-forget — partial callback already yielded it)
+        let manager = asrManager
+        Task {
+            let finalText = try? await manager?.finish()
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if let finalText, !finalText.isEmpty {
+                    self.partialTranscript = finalText
+                    self.continuation?.yield(finalText)
+                }
+                self.continuation?.finish()
+                self.continuation = nil
+            }
+        }
 
         isRecording = false
     }
 
-    private func startRecognition() throws {
-        guard let recognizer, recognizer.isAvailable else {
-            throw STTError.recognizerUnavailable
-        }
+    // MARK: - Private: Start Recognition
 
-        // Verify microphone hardware is actually available
+    private func startRecognition() throws {
+        // Verify microphone hardware
         let audioSession = AVAudioSession.sharedInstance()
         guard audioSession.isInputAvailable else {
-            logger.error("No audio input available on this device")
             throw STTError.microphoneUnavailable
         }
 
-        // Clean up any prior recognition state
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
-
-        // Audio session is normally configured by KokoroManager.setupAudioEngine() as
-        // .playAndRecord. If Kokoro is disabled or not yet loaded, the category may still
-        // be .soloAmbient (default), which doesn't support recording. Defensively ensure
-        // the correct category before activating.
+        // Ensure audio session is configured for recording
         if audioSession.category != .playAndRecord {
             try audioSession.setCategory(.playAndRecord, mode: .default, options: [
                 .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
@@ -190,232 +157,75 @@ final class STTService {
         }
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
+        // Clean up prior state
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+
         let engine = AVAudioEngine()
         self.audioEngine = engine
 
-        // Require on-device recognition for privacy — memoir content must never leave the device.
-        guard recognizer.supportsOnDeviceRecognition else {
-            throw STTError.onDeviceUnavailable
-        }
+        // Reset ASR manager for new session (models stay loaded)
+        let manager = asrManager
+        Task { await manager?.reset() }
 
-        let request = createRecognitionRequest()
-        self.recognitionRequest = request
-        self.sharedRequest = request
-
-        // Install tap with nil format — lets the system use the hardware's native format.
-        // Passing an explicit format can crash with NSException on format mismatch.
-        let inputNode = engine.inputNode
-        // Explicitly @Sendable to prevent @MainActor isolation inheritance.
-        // This callback runs on the audio render thread.
-        // Captures sharedRequest (nonisolated(unsafe)) so chained requests receive buffers.
-        // Track audio tap activity for debugging STT cutoff
-        nonisolated(unsafe) var tapCount = 0
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak self] buffer, _ in
-            self?.sharedRequest?.append(buffer)
-            tapCount += 1
-            // Log every ~5 seconds (48kHz / 1024 samples per buffer ≈ 47 buffers/sec)
-            if tapCount % 235 == 0 {
-                let hasRequest = self?.sharedRequest != nil
+        // Wire FluidAudio callbacks
+        Task {
+            // Partial callback — fires on each 160ms chunk when new tokens are decoded
+            await manager?.setPartialCallback { [weak self] text in
                 Task { @MainActor in
-                    self?.logger.info("Audio tap alive: \(tapCount) buffers, sharedRequest=\(hasRequest)")
+                    guard let self else { return }
+                    self.partialTranscript = text
+                    self.continuation?.yield(text)
                 }
             }
+
+            // EOU callback — fires on utterance boundaries. Log but don't auto-stop.
+            await manager?.setEouCallback { [weak self] text in
+                Task { @MainActor in
+                    self?.logger.info("EOU detected: \(text.count) chars")
+                }
+            }
+        }
+
+        // Audio tap — copies the buffer and sends to the ASR actor.
+        // AVAudioPCMBuffer is non-Sendable so we wrap in a Sendable box.
+        let inputNode = engine.inputNode
+        nonisolated(unsafe) let unsafeManager = asrManager
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { @Sendable buffer, _ in
+            let box = SendableBuffer(buffer)
+            Task { try? await unsafeManager?.process(audioBuffer: box.buffer) }
         }
 
         engine.prepare()
         try engine.start()
         isRecording = true
-        resetSilenceTimer()
-
-        taskGeneration += 1
-        installRecognitionTask(for: request)
-    }
-
-    /// Creates a new on-device speech recognition request.
-    private func createRecognitionRequest() -> SFSpeechAudioBufferRecognitionRequest {
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
-        request.addsPunctuation = true  // Improves transcription quality and may affect session lifetime
-        return request
-    }
-
-    private func resetSilenceTimer() {
-        silenceTimer?.cancel()
-        let timeout = StorageService.silenceTimeout
-        guard timeout > 0 else { return }  // disabled — no timer
-        silenceTimer = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(timeout))
-            guard let self, self.isRecording, !Task.isCancelled else { return }
-            self.logger.info("Silence timeout (\(timeout)s) — auto-stopping")
-            self.continuation?.finish()
-            self.stopListening(reason: "silence timeout \(timeout)s")
-        }
-    }
-
-    /// Chains a new recognition request after the previous one timed out (~60s).
-    /// The audio engine and tap keep running; only the request/task are replaced.
-    private func chainRecognitionRequest() {
-        logger.info("Chaining: creating new recognition request")
-
-        guard let recognizer, recognizer.isAvailable else {
-            logger.error("Chaining: recognizer unavailable — stopping")
-            continuation?.finish()
-            stopListening(reason: "recognizer unavailable during chain")
-            return
-        }
-
-        // 1. Create new request FIRST
-        let newRequest = createRecognitionRequest()
-        logger.info("Chaining: new request created")
-
-        // 2. Swap sharedRequest — tap immediately feeds new request (no gap)
-        let oldRequest = self.recognitionRequest
-        let oldTask = self.recognitionTask
-        self.recognitionRequest = newRequest
-        self.sharedRequest = newRequest
-        logger.info("Chaining: swapped to new request")
-
-        // 3. NOW tear down old request/task
-        oldRequest?.endAudio()
-        oldTask?.cancel()
-        logger.info("Chaining: old request torn down")
-
-        // 4. Install new recognition task
-        taskGeneration += 1
-        installRecognitionTask(for: newRequest)
-        logger.info("Chaining: new recognition task installed, generation=\(self.taskGeneration)")
-    }
-
-    /// Installs the recognition task callback for the given request.
-    /// Handles partial results, final results, and the 60-second timeout error
-    /// by chaining a new request when `shouldKeepListening` is still true.
-    private func installRecognitionTask(for request: SFSpeechAudioBufferRecognitionRequest) {
-        guard let recognizer else { return }
-        let currentGeneration = self.taskGeneration
-
-        // Snapshot the accumulated transcript so the @Sendable callback can build on it.
-        // Uses a Sendable box because the recognition callback is @Sendable. The Speech
-        // framework calls the callback serially, so no concurrent mutation occurs.
-        let segment = SegmentState(base: self.accumulatedTranscript)
-
-        recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
-            guard let self else { return }
-
-            if let result {
-                let text = result.bestTranscription.formattedString
-                if text.count > segment.text.count {
-                    segment.text = text
-                }
-
-                // Full transcript = everything from prior segments + this segment
-                let fullTranscript: String
-                if segment.base.isEmpty {
-                    fullTranscript = segment.text
-                } else {
-                    fullTranscript = segment.base + " " + segment.text
-                }
-                let isFinal = result.isFinal
-
-                Task { @MainActor in
-                    guard self.taskGeneration == currentGeneration else { return }
-                    self.accumulatedTranscript = fullTranscript
-                    self.partialTranscript = fullTranscript
-                    self.continuation?.yield(fullTranscript)
-                    self.resetSilenceTimer()
-
-                    if isFinal {
-                        if self.shouldKeepListening {
-                            // Apple's recognizer sent isFinal (natural pause or internal limit).
-                            // The recognition task is DONE — no more results will come.
-                            // We MUST chain to keep receiving speech.
-                            self.accumulatedTranscript = fullTranscript
-                            self.logger.info("isFinal during active recording — chaining (transcript: \(fullTranscript.count) chars)")
-                            self.chainRecognitionRequest()
-                        } else {
-                            self.logger.info("isFinal with shouldKeepListening=false — stopping, transcript: \(fullTranscript.count) chars")
-                            self.continuation?.finish()
-                            self.stopListening(reason: "isFinal with shouldKeepListening=false")
-                        }
-                    }
-                }
-            }
-
-            if let error {
-                // Check for the 60-second timeout error (kAFAssistantErrorDomain code 1110)
-                let nsError = error as NSError
-                let isTimeoutError = nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110
-
-                // Capture segment state before crossing isolation boundary
-                let currentFull: String
-                if segment.base.isEmpty {
-                    currentFull = segment.text
-                } else if segment.text.isEmpty {
-                    currentFull = segment.base
-                } else {
-                    currentFull = segment.base + " " + segment.text
-                }
-
-                Task { @MainActor in
-                    guard self.taskGeneration == currentGeneration else {
-                        // Stale error from cancelled task — ignore
-                        return
-                    }
-                    if isTimeoutError && self.shouldKeepListening {
-                        // Timeout while still recording — chain seamlessly
-                        self.accumulatedTranscript = currentFull
-                        self.logger.info("60s timeout — chaining new recognition request")
-                        self.chainRecognitionRequest()
-                    } else {
-                        self.logger.error("Recognition error: domain=\(nsError.domain), code=\(nsError.code), desc=\(nsError.localizedDescription)")
-                        if !currentFull.isEmpty {
-                            self.accumulatedTranscript = currentFull
-                            self.partialTranscript = currentFull
-                            self.continuation?.yield(currentFull)
-                        }
-                        self.continuation?.finish()
-                        self.stopListening(reason: "recognition error: \(nsError.domain) \(nsError.code)")
-                    }
-                }
-            }
-        }
-    }
-
-}
-
-/// Thread-safe box for mutable transcript state shared with the @Sendable recognition callback.
-/// Uses OSAllocatedUnfairLock for atomic access to the mutable text property.
-/// Using @unchecked Sendable because the lock ensures thread safety.
-private final class SegmentState: @unchecked Sendable {
-    let base: String
-    private let lock = OSAllocatedUnfairLock(initialState: "")
-
-    init(base: String) {
-        self.base = base
-    }
-
-    var text: String {
-        get { lock.withLock { $0 } }
-        set { lock.withLock { $0 = newValue } }
+        logger.info("Recording started with FluidAudio ASR")
     }
 }
+
+// MARK: - Sendable Buffer Wrapper
+
+/// Wraps AVAudioPCMBuffer (non-Sendable) for crossing actor boundaries.
+/// Safe because each buffer is created fresh in the audio tap and consumed once.
+private struct SendableBuffer: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+    init(_ buffer: AVAudioPCMBuffer) {
+        self.buffer = buffer
+    }
+}
+
+// MARK: - Errors
 
 enum STTError: Error, LocalizedError {
-    case recognizerUnavailable
-    case notAuthorized
     case microphoneUnavailable
-    case onDeviceUnavailable
+    case asrNotLoaded
 
     var errorDescription: String? {
         switch self {
-        case .recognizerUnavailable:
-            return "Speech recognition is not available on this device"
-        case .notAuthorized:
-            return "Speech recognition access not authorized"
         case .microphoneUnavailable:
             return "Microphone is not available. Please check permissions in Settings."
-        case .onDeviceUnavailable:
-            return "On-device speech recognition is not available. Please use text input instead."
+        case .asrNotLoaded:
+            return "Speech recognition model not loaded. Please restart the app."
         }
     }
 }

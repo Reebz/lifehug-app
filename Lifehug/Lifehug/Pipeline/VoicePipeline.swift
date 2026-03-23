@@ -126,7 +126,7 @@ final class VoicePipeline {
             await sttService.requestAuthorization()
         }
         guard sttService.isAuthorized else {
-            error = "Speech recognition not authorized"
+            error = "Microphone access not authorized"
             state = .idle
             return
         }

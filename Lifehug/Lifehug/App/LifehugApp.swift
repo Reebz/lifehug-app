@@ -37,8 +37,9 @@ struct LifehugApp: App {
                 .environment(kokoroManager)
                 .task {
                     ttsService.setKokoroManager(kokoroManager)
-                    // Clean up legacy MLX model files (~697MB) from pre-FluidAudio builds
                     kokoroManager.cleanupLegacyFilesIfNeeded()
+                    // Load FluidAudio ASR model (downloads on first launch, cached after)
+                    await sttService.loadASRModel()
                     if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
                         await kokoroManager.loadEngine()
                     }
