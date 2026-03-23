@@ -12,12 +12,12 @@ final class STTService {
     var isRecording: Bool = false
     var partialTranscript: String = ""
     var error: String?
+    /// Whether the ASR model is loaded and ready for recording.
+    var isASRReady: Bool { asrManager != nil }
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "STT")
 
     /// The FluidAudio ASR manager — created once, reused across sessions via reset().
-    /// nonisolated(unsafe) because StreamingEouAsrManager is an actor and we access it
-    /// from @MainActor methods via await. No concurrent access.
     nonisolated(unsafe) private var asrManager: StreamingEouAsrManager?
 
     private var audioEngine: AVAudioEngine?
@@ -27,18 +27,18 @@ final class STTService {
 
     // MARK: - Model Loading
 
-    /// Load the ASR model. Call once at app launch — the manager persists and is
-    /// reused across recording sessions via reset().
+    /// Load the ASR model. Call at app launch — the manager persists across sessions.
     func loadASRModel() async {
         guard asrManager == nil else { return }
         do {
+            logger.info("Loading FluidAudio ASR model...")
             let manager = StreamingEouAsrManager(chunkSize: .ms160, eouDebounceMs: 1280)
             try await manager.loadModelsFromHuggingFace()
             self.asrManager = manager
-            logger.info("FluidAudio ASR model loaded")
+            logger.info("FluidAudio ASR model loaded successfully")
         } catch {
             logger.error("Failed to load ASR model: \(error)")
-            // Not fatal — we'll try again on first startListening()
+            self.error = "Voice recognition model failed to download. Check your connection and restart."
         }
     }
 
@@ -49,7 +49,6 @@ final class STTService {
         isAuthorized = true
         return
         #else
-        // Only microphone permission needed — FluidAudio runs on-device, no Speech framework.
         let micGranted: Bool
         if #available(iOS 17, *) {
             micGranted = await AVAudioApplication.requestRecordPermission()
@@ -98,13 +97,10 @@ final class STTService {
             }
         }
 
-        do {
-            try startRecognition()
-        } catch {
-            logger.error("Failed to start recognition: \(error)")
-            self.error = "Failed to start speech recognition: \(error.localizedDescription)"
-            isRecording = false
-            continuation?.finish()
+        // Start recognition in a Task so we can await the async ASR setup
+        // (reset + callback wiring) BEFORE starting the audio engine.
+        Task {
+            await self.startRecognitionAsync()
         }
 
         return stream
@@ -117,6 +113,8 @@ final class STTService {
         guard isRecording else { return }
         logger.info("stopListening — reason: \(reason)")
 
+        isRecording = false
+
         // Stop audio capture
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -124,82 +122,96 @@ final class STTService {
 
         // Get final transcript from ASR (fire-and-forget — partial callback already yielded it)
         let manager = asrManager
+        let cont = continuation
+        continuation = nil
         Task {
             let finalText = try? await manager?.finish()
-            await MainActor.run { [weak self] in
-                guard let self else { return }
+            await MainActor.run {
                 if let finalText, !finalText.isEmpty {
                     self.partialTranscript = finalText
-                    self.continuation?.yield(finalText)
+                    cont?.yield(finalText)
                 }
-                self.continuation?.finish()
-                self.continuation = nil
+                cont?.finish()
             }
         }
-
-        isRecording = false
     }
 
-    // MARK: - Private: Start Recognition
+    // MARK: - Private: Async Recognition Setup
 
-    private func startRecognition() throws {
-        // Verify microphone hardware
-        let audioSession = AVAudioSession.sharedInstance()
-        guard audioSession.isInputAvailable else {
-            throw STTError.microphoneUnavailable
+    /// Sets up the ASR manager, wires callbacks, THEN starts the audio engine.
+    /// This ensures callbacks are registered before any audio buffers arrive.
+    private func startRecognitionAsync() async {
+        // Guard: ASR model must be loaded
+        guard let manager = asrManager else {
+            logger.error("ASR model not loaded — attempting retry")
+            await loadASRModel()
+            guard asrManager != nil else {
+                error = "Voice recognition not available. Please restart the app."
+                continuation?.finish()
+                return
+            }
+            // Retry with the now-loaded manager
+            await startRecognitionAsync()
+            return
         }
 
-        // Ensure audio session is configured for recording
-        if audioSession.category != .playAndRecord {
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [
-                .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
-            ])
-        }
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        do {
+            // Verify microphone hardware
+            let audioSession = AVAudioSession.sharedInstance()
+            guard audioSession.isInputAvailable else {
+                throw STTError.microphoneUnavailable
+            }
 
-        // Clean up prior state
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
+            // Ensure audio session is configured for recording
+            if audioSession.category != .playAndRecord {
+                try audioSession.setCategory(.playAndRecord, mode: .default, options: [
+                    .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
+                ])
+            }
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
-        let engine = AVAudioEngine()
-        self.audioEngine = engine
+            // Clean up prior state
+            audioEngine?.stop()
+            audioEngine?.inputNode.removeTap(onBus: 0)
 
-        // Reset ASR manager for new session (models stay loaded)
-        let manager = asrManager
-        Task { await manager?.reset() }
+            // 1. Reset ASR state FIRST (await — not fire-and-forget)
+            await manager.reset()
 
-        // Wire FluidAudio callbacks
-        Task {
-            // Partial callback — fires on each 160ms chunk when new tokens are decoded
-            await manager?.setPartialCallback { [weak self] text in
+            // 2. Wire callbacks BEFORE starting audio (await — not fire-and-forget)
+            await manager.setPartialCallback { [weak self] text in
                 Task { @MainActor in
                     guard let self else { return }
                     self.partialTranscript = text
                     self.continuation?.yield(text)
                 }
             }
-
-            // EOU callback — fires on utterance boundaries. Log but don't auto-stop.
-            await manager?.setEouCallback { [weak self] text in
+            await manager.setEouCallback { [weak self] text in
                 Task { @MainActor in
                     self?.logger.info("EOU detected: \(text.count) chars")
                 }
             }
-        }
 
-        // Audio tap — copies the buffer and sends to the ASR actor.
-        // AVAudioPCMBuffer is non-Sendable so we wrap in a Sendable box.
-        let inputNode = engine.inputNode
-        nonisolated(unsafe) let unsafeManager = asrManager
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { @Sendable buffer, _ in
-            let box = SendableBuffer(buffer)
-            Task { try? await unsafeManager?.process(audioBuffer: box.buffer) }
-        }
+            // 3. NOW start the audio engine and tap
+            let engine = AVAudioEngine()
+            self.audioEngine = engine
 
-        engine.prepare()
-        try engine.start()
-        isRecording = true
-        logger.info("Recording started with FluidAudio ASR")
+            let inputNode = engine.inputNode
+            nonisolated(unsafe) let unsafeManager = manager
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { @Sendable buffer, _ in
+                let box = SendableBuffer(buffer)
+                Task { try? await unsafeManager.process(audioBuffer: box.buffer) }
+            }
+
+            engine.prepare()
+            try engine.start()
+            isRecording = true
+            logger.info("Recording started with FluidAudio ASR")
+
+        } catch {
+            logger.error("Failed to start recognition: \(error)")
+            self.error = "Failed to start recording: \(error.localizedDescription)"
+            continuation?.finish()
+        }
     }
 }
 

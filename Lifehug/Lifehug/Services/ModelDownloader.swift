@@ -214,8 +214,17 @@ final class ModelDownloader {
 
     private func clearModelFiles() {
         let hubDir = storage.modelsDirectory.appendingPathComponent("huggingface")
-        try? FileManager.default.removeItem(at: hubDir)
-        logger.info("Cleared model files for re-download")
+        let fm = FileManager.default
+        if fm.fileExists(atPath: hubDir.path) {
+            do {
+                try fm.removeItem(at: hubDir)
+                logger.info("Cleared model files at: \(hubDir.path)")
+            } catch {
+                logger.error("Failed to clear model files: \(error)")
+            }
+        } else {
+            logger.info("No model files to clear at: \(hubDir.path)")
+        }
     }
 
     // MARK: - Checks

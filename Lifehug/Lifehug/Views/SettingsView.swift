@@ -627,8 +627,9 @@ struct SettingsView: View {
         // Delete rotation state
         try? fm.removeItem(at: storage.rotationURL)
 
-        // Delete model cache
+        // Delete model caches (LLM + Kokoro TTS)
         deleteModelCache()
+        kokoroManager.deleteModel()
 
         // Cancel notifications
         NotificationService.cancelDailyReminder()
