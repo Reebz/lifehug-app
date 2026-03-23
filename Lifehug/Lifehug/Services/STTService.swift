@@ -33,7 +33,8 @@ final class STTService {
         guard asrManager == nil else { return }
         do {
             logger.info("Loading FluidAudio ASR model...")
-            let manager = StreamingEouAsrManager(chunkSize: .ms160, eouDebounceMs: 1280)
+            // Use .ms320 — halves WER (4.87% vs 8.29% for .ms160) with only 160ms extra latency.
+            let manager = StreamingEouAsrManager(chunkSize: .ms320, eouDebounceMs: 1280)
             try await manager.loadModelsFromHuggingFace()
             self.asrManager = manager
             logger.info("FluidAudio ASR model loaded successfully")
@@ -128,18 +129,26 @@ final class STTService {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
 
-        // Get final transcript from ASR (fire-and-forget — partial callback already yielded it)
+        // Get final transcript from ASR — the partial callback may have already yielded,
+        // but finish() does a final decoding pass that may produce additional tokens.
         let manager = asrManager
         let cont = continuation
         continuation = nil
         Task {
-            let finalText = try? await manager?.finish()
-            await MainActor.run {
-                if let finalText, !finalText.isEmpty {
-                    self.partialTranscript = finalText
-                    cont?.yield(finalText)
+            do {
+                let finalText = try await manager?.finish()
+                await MainActor.run {
+                    if let finalText, !finalText.isEmpty {
+                        self.partialTranscript = finalText
+                        cont?.yield(finalText)
+                    }
+                    cont?.finish()
                 }
-                cont?.finish()
+            } catch {
+                await MainActor.run {
+                    self.logger.error("ASR finish() failed: \(error)")
+                    cont?.finish()
+                }
             }
         }
     }
@@ -211,9 +220,23 @@ final class STTService {
 
             let inputNode = engine.inputNode
             nonisolated(unsafe) let unsafeManager = manager
+            nonisolated(unsafe) var errorLogged = false
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { @Sendable buffer, _ in
                 let box = SendableBuffer(buffer)
-                Task { try? await unsafeManager.process(audioBuffer: box.buffer) }
+                Task {
+                    do {
+                        try await unsafeManager.process(audioBuffer: box.buffer)
+                    } catch {
+                        // Log the FIRST error — don't spam (fires ~47 times/sec)
+                        if !errorLogged {
+                            errorLogged = true
+                            Task { @MainActor in
+                                Logger(subsystem: "com.lifehug.app", category: "STT")
+                                    .error("ASR process(audioBuffer:) failed: \(error)")
+                            }
+                        }
+                    }
+                }
             }
 
             engine.prepare()
