@@ -208,8 +208,18 @@ final class STTService {
         // Explicitly @Sendable to prevent @MainActor isolation inheritance.
         // This callback runs on the audio render thread.
         // Captures sharedRequest (nonisolated(unsafe)) so chained requests receive buffers.
+        // Track audio tap activity for debugging STT cutoff
+        nonisolated(unsafe) var tapCount = 0
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable [weak self] buffer, _ in
             self?.sharedRequest?.append(buffer)
+            tapCount += 1
+            // Log every ~5 seconds (48kHz / 1024 samples per buffer ≈ 47 buffers/sec)
+            if tapCount % 235 == 0 {
+                let hasRequest = self?.sharedRequest != nil
+                Task { @MainActor in
+                    self?.logger.info("Audio tap alive: \(tapCount) buffers, sharedRequest=\(hasRequest)")
+                }
+            }
         }
 
         engine.prepare()
@@ -226,6 +236,7 @@ final class STTService {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
+        request.addsPunctuation = true  // Improves transcription quality and may affect session lifetime
         return request
     }
 
@@ -313,17 +324,19 @@ final class STTService {
                     self.continuation?.yield(fullTranscript)
                     self.resetSilenceTimer()
 
-                    if isFinal && !self.shouldKeepListening {
-                        // User explicitly stopped (tap, termination phrase, etc.)
-                        self.logger.info("isFinal with shouldKeepListening=false — stopping, transcript length=\(fullTranscript.count)")
-                        self.continuation?.finish()
-                        self.stopListening(reason: "isFinal with shouldKeepListening=false")
-                    } else if isFinal {
-                        // Apple's VAD sent isFinal during active recording (natural pause).
-                        // Do NOT chain — chaining creates a gap that loses audio.
-                        // The recognition task is done, but the error callback (code 1110)
-                        // will fire next and handle chaining properly.
-                        self.logger.info("isFinal during active recording — waiting for error callback to chain, transcript length=\(fullTranscript.count)")
+                    if isFinal {
+                        if self.shouldKeepListening {
+                            // Apple's recognizer sent isFinal (natural pause or internal limit).
+                            // The recognition task is DONE — no more results will come.
+                            // We MUST chain to keep receiving speech.
+                            self.accumulatedTranscript = fullTranscript
+                            self.logger.info("isFinal during active recording — chaining (transcript: \(fullTranscript.count) chars)")
+                            self.chainRecognitionRequest()
+                        } else {
+                            self.logger.info("isFinal with shouldKeepListening=false — stopping, transcript: \(fullTranscript.count) chars")
+                            self.continuation?.finish()
+                            self.stopListening(reason: "isFinal with shouldKeepListening=false")
+                        }
                     }
                 }
             }
