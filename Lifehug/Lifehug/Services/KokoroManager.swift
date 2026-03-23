@@ -336,30 +336,35 @@ final class KokoroManager {
 // MARK: - AVAudioPlayer Delegate Bridge
 
 /// Bridges AVAudioPlayerDelegate's completion callback to async/await.
+/// Uses OSAllocatedUnfairLock for thread-safe double-resume guard since
+/// audioPlayerDidFinishPlaying fires on an AVFoundation background thread
+/// while forceComplete() fires from @MainActor.
 private final class PlayerDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
     private let onFinished: @Sendable () -> Void
-    private var completed = false
+    private let completed = OSAllocatedUnfairLock(initialState: false)
 
     init(onFinished: @escaping @Sendable () -> Void) {
         self.onFinished = onFinished
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        guard !completed else { return }
-        completed = true
-        onFinished()
+        complete()
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
-        guard !completed else { return }
-        completed = true
-        onFinished()
+        complete()
     }
 
     /// Force-complete the delegate (used by stopPlayback to resume the continuation).
     func forceComplete() {
-        guard !completed else { return }
-        completed = true
-        onFinished()
+        complete()
+    }
+
+    private func complete() {
+        completed.withLock { done in
+            guard !done else { return }
+            done = true
+            onFinished()
+        }
     }
 }

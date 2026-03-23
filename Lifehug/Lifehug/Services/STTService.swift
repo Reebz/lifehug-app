@@ -22,6 +22,7 @@ final class STTService {
 
     private var audioEngine: AVAudioEngine?
     private var continuation: AsyncStream<String>.Continuation?
+    private var setupTask: Task<Void, Never>?
 
     init() {}
 
@@ -99,8 +100,10 @@ final class STTService {
 
         // Start recognition in a Task so we can await the async ASR setup
         // (reset + callback wiring) BEFORE starting the audio engine.
-        Task {
+        // Store the task so stopListening() can cancel it if called before setup completes.
+        setupTask = Task {
             await self.startRecognitionAsync()
+            self.setupTask = nil
         }
 
         return stream
@@ -110,8 +113,13 @@ final class STTService {
     // MARK: - Stop Listening
 
     func stopListening(reason: String = "unknown") {
-        guard isRecording else { return }
+        guard isRecording || setupTask != nil else { return }
         logger.info("stopListening — reason: \(reason)")
+
+        // Cancel the setup task if it hasn't finished yet (prevents engine
+        // starting after stopListening was called — race condition H1)
+        setupTask?.cancel()
+        setupTask = nil
 
         isRecording = false
 
@@ -141,6 +149,12 @@ final class STTService {
     /// Sets up the ASR manager, wires callbacks, THEN starts the audio engine.
     /// This ensures callbacks are registered before any audio buffers arrive.
     private func startRecognitionAsync() async {
+        // Check if stopListening() was called before we started
+        guard !Task.isCancelled else {
+            logger.info("Setup cancelled before starting")
+            return
+        }
+
         // Guard: ASR model must be loaded
         guard let manager = asrManager else {
             logger.error("ASR model not loaded — attempting retry")

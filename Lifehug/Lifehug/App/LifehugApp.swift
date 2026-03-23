@@ -38,11 +38,15 @@ struct LifehugApp: App {
                 .task {
                     ttsService.setKokoroManager(kokoroManager)
                     kokoroManager.cleanupLegacyFilesIfNeeded()
-                    // Load FluidAudio ASR model (downloads on first launch, cached after)
-                    await sttService.loadASRModel()
-                    if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
-                        await kokoroManager.loadEngine()
-                    }
+                    // Load ASR and Kokoro in parallel — neither blocks the other.
+                    let shouldLoadKokoro = KokoroManager.isEnabled && kokoroManager.isModelDownloaded
+                    async let asrLoad: () = sttService.loadASRModel()
+                    async let kokoroLoad: () = {
+                        if shouldLoadKokoro {
+                            await kokoroManager.loadEngine()
+                        }
+                    }()
+                    _ = await (asrLoad, kokoroLoad)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     modelState.handleScenePhaseChange(newPhase)
