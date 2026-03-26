@@ -25,15 +25,14 @@ final class STTService {
     private var continuation: AsyncStream<String>.Continuation?
     private var setupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
-
-    init() {}
+    private var finalTranscriptionTask: Task<Void, Never>?
 
     // MARK: - Model Loading
 
     func loadASRModel() async {
         guard whisperPipe == nil else { return }
         do {
-            print("[STT] Loading WhisperKit small.en model...")
+            logger.info("Loading WhisperKit small.en model...")
             let pipe = try await WhisperKit(WhisperKitConfig(
                 model: "small.en",
                 verbose: false,
@@ -42,9 +41,9 @@ final class STTService {
                 download: true
             ))
             self.whisperPipe = pipe
-            print("[STT] ✅ WhisperKit loaded successfully")
+            logger.info("WhisperKit loaded successfully")
         } catch {
-            print("[STT] ❌ WhisperKit load failed: \(error)")
+            logger.error("WhisperKit load failed: \(error)")
             self.error = "Voice recognition failed to load. Please restart."
         }
     }
@@ -94,13 +93,13 @@ final class STTService {
         }
         #else
         self.error = nil
-        print("[STT] startListening() — whisperPipe=\(whisperPipe != nil)")
+        logger.info("startListening — whisperPipe=\(self.whisperPipe != nil)")
 
         let stream = AsyncStream<String> { continuation in
             self.continuation = continuation
             continuation.onTermination = { @Sendable _ in
                 Task { @MainActor in
-                    self.stopListening(reason: "stream onTermination")
+                    self.stopListening()
                 }
             }
         }
@@ -116,17 +115,23 @@ final class STTService {
 
     // MARK: - Stop Listening
 
-    func stopListening(reason: String = "unknown") {
+    func stopListening() {
         guard isRecording || setupTask != nil else { return }
-        print("[STT] stopListening — reason: \(reason)")
+        logger.info("stopListening")
 
         setupTask?.cancel()
         setupTask = nil
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
         isRecording = false
 
-        // Grab accumulated samples BEFORE stopping the recorder
+        // Cancel any prior final transcription (rapid stop/start guard)
+        finalTranscriptionTask?.cancel()
+        finalTranscriptionTask = nil
+
+        // Grab accumulated samples BEFORE stopping the recorder.
+        // NOTE: audioProcessor.audioSamples is a plain ContiguousArray with no
+        // synchronization (WhisperKit issue #442). The audio tap writes on the
+        // render thread while we read here. COW makes torn reads unlikely but
+        // theoretically possible. No clean fix without modifying WhisperKit.
         nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
         let samples: [Float]
         if let processor {
@@ -138,34 +143,34 @@ final class STTService {
         // Use WhisperKit's proper engine teardown (removeTap, disconnect, stop, reset)
         processor?.stopRecording()
 
-        // Final transcription of complete audio buffer
         let cont = continuation
         continuation = nil
 
-        print("[STT] stopListening — \(samples.count) samples captured (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
+        // Await periodic transcription before running final — prevents concurrent
+        // transcribe() calls against the same CoreML/Metal pipeline.
+        let periodicTask = transcriptionTask
+        transcriptionTask = nil
+
+        logger.info("Captured \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
 
         if !samples.isEmpty, let pipe = whisperPipe {
             nonisolated(unsafe) let unsafePipe = pipe
-            Task {
-                do {
-                    print("[STT] Final transcription: \(samples.count) samples")
-                    let results = try await unsafePipe.transcribe(audioArray: samples)
-                    let text = results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    print("[STT] Final result: '\(text.prefix(80))...' (\(text.count) chars)")
-                    await MainActor.run {
-                        if !text.isEmpty {
-                            self.partialTranscript = text
-                            cont?.yield(text)
-                        }
-                        cont?.finish()
+            finalTranscriptionTask = Task {
+                periodicTask?.cancel()
+                _ = await periodicTask?.value
+
+                let text = await self.transcribe(samples: samples, with: unsafePipe)
+                await MainActor.run {
+                    if let text, !text.isEmpty {
+                        self.partialTranscript = text
+                        cont?.yield(text)
                     }
-                } catch {
-                    print("[STT] ❌ Final transcription failed: \(error)")
-                    await MainActor.run { cont?.finish() }
+                    cont?.finish()
                 }
             }
         } else {
-            print("[STT] ⚠️ No samples captured — nothing to transcribe")
+            periodicTask?.cancel()
+            logger.debug("No samples — nothing to transcribe")
             cont?.finish()
         }
     }
@@ -175,12 +180,11 @@ final class STTService {
     private func startRecognitionAsync() async {
         guard !Task.isCancelled else { return }
 
-        // Ensure WhisperKit is loaded
         if whisperPipe == nil {
-            print("[STT] WhisperKit not loaded — attempting load")
+            logger.info("WhisperKit not loaded — attempting load")
             await loadASRModel()
             guard whisperPipe != nil else {
-                print("[STT] ❌ WhisperKit still nil after retry")
+                logger.error("WhisperKit still nil after retry")
                 error = "Voice recognition not available. Please restart."
                 continuation?.finish()
                 return
@@ -214,13 +218,12 @@ final class STTService {
             try unsafeProcessor.startRecordingLive(callback: nil)
 
             isRecording = true
-            print("[STT] ✅ Recording started — WhisperKit AudioProcessor (hardware format → 16kHz resample)")
+            logger.info("Recording started — WhisperKit AudioProcessor")
 
-            // Start periodic transcription task (~every 3 seconds)
             startPeriodicTranscription()
 
         } catch {
-            print("[STT] ❌ startRecognitionAsync failed: \(error)")
+            logger.error("startRecognitionAsync failed: \(error)")
             self.error = "Failed to start recording: \(error.localizedDescription)"
             continuation?.finish()
         }
@@ -232,28 +235,34 @@ final class STTService {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { break }
-                guard let self else { continue }
+                guard let self else { break }
                 guard let pipe = self.whisperPipe else { continue }
                 nonisolated(unsafe) let unsafePipe = pipe
 
-                // Read accumulated samples from WhisperKit's AudioProcessor
                 let samples = Array(unsafePipe.audioProcessor.audioSamples)
-                guard samples.count > 16000 else { continue } // Need at least 1 second of audio
+                guard samples.count > 16000 else { continue }
 
-                do {
-                    let results = try await unsafePipe.transcribe(audioArray: samples)
-                    let text = results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if !text.isEmpty {
-                        await MainActor.run {
-                            self.partialTranscript = text
-                            self.continuation?.yield(text)
-                        }
-                        print("[STT] 📝 Partial (\(samples.count) samples): '\(text.prefix(60))...'")
+                if let text = await self.transcribe(samples: samples, with: unsafePipe), !text.isEmpty {
+                    await MainActor.run {
+                        self.partialTranscript = text
+                        self.continuation?.yield(text)
                     }
-                } catch {
-                    print("[STT] Periodic transcription error: \(error)")
                 }
             }
+        }
+    }
+
+    // MARK: - Shared Transcription
+
+    /// Transcribes audio samples and returns the trimmed text, or nil on failure.
+    private nonisolated func transcribe(samples: [Float], with pipe: WhisperKit) async -> String? {
+        do {
+            let results = try await pipe.transcribe(audioArray: samples)
+            return results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            Logger(subsystem: "com.lifehug.app", category: "STT")
+                .error("Transcription failed: \(error)")
+            return nil
         }
     }
 }
