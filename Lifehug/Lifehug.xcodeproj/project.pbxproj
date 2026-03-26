@@ -504,7 +504,6 @@
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
@@ -568,7 +567,6 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -614,7 +612,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -625,6 +623,7 @@
 				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lifehugapp.ios;
 				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -636,7 +635,7 @@
 				CODE_SIGN_ENTITLEMENTS = Lifehug/Lifehug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = PJHS9XQS6H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lifehug/Info.plist;
@@ -647,6 +646,7 @@
 				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lifehugapp.ios;
 				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;

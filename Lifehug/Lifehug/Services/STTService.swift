@@ -4,8 +4,10 @@ import WhisperKit
 import os
 
 /// On-device speech-to-text using WhisperKit (OpenAI Whisper via CoreML).
-/// Accumulates audio from the microphone tap, transcribes periodically (~3s)
-/// for live partial results, and does a final full-buffer transcription on stop.
+/// Uses WhisperKit's built-in AudioProcessor for recording (handles hardware
+/// format detection, resampling to 16kHz mono, and proper engine teardown).
+/// Transcribes periodically (~3s) for live partial results, and does a final
+/// full-buffer transcription on stop.
 @Observable
 @MainActor
 final class STTService {
@@ -20,14 +22,9 @@ final class STTService {
     /// WhisperKit pipeline — created once at launch, persists across sessions.
     private var whisperPipe: WhisperKit?
 
-    private var audioEngine: AVAudioEngine?
     private var continuation: AsyncStream<String>.Continuation?
     private var setupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
-
-    /// Accumulated 16kHz mono audio samples for the current recording session.
-    /// Written from the audio tap (via MainActor dispatch), read by the transcription task.
-    private var audioSamples: [Float] = []
 
     init() {}
 
@@ -129,23 +126,30 @@ final class STTService {
         transcriptionTask = nil
         isRecording = false
 
-        // Stop audio capture
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
+        // Grab accumulated samples BEFORE stopping the recorder
+        nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
+        let samples: [Float]
+        if let processor {
+            samples = Array(processor.audioSamples)
+        } else {
+            samples = []
+        }
+
+        // Use WhisperKit's proper engine teardown (removeTap, disconnect, stop, reset)
+        processor?.stopRecording()
 
         // Final transcription of complete audio buffer
-        let samples = audioSamples
-        nonisolated(unsafe) let pipe = whisperPipe
         let cont = continuation
         continuation = nil
-        audioSamples = []
 
-        Task {
-            do {
-                if !samples.isEmpty, let pipe {
-                    print("[STT] Final transcription: \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
-                    let results = try await pipe.transcribe(audioArray: samples)
+        print("[STT] stopListening — \(samples.count) samples captured (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
+
+        if !samples.isEmpty, let pipe = whisperPipe {
+            nonisolated(unsafe) let unsafePipe = pipe
+            Task {
+                do {
+                    print("[STT] Final transcription: \(samples.count) samples")
+                    let results = try await unsafePipe.transcribe(audioArray: samples)
                     let text = results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     print("[STT] Final result: '\(text.prefix(80))...' (\(text.count) chars)")
                     await MainActor.run {
@@ -153,14 +157,16 @@ final class STTService {
                             self.partialTranscript = text
                             cont?.yield(text)
                         }
+                        cont?.finish()
                     }
+                } catch {
+                    print("[STT] ❌ Final transcription failed: \(error)")
+                    await MainActor.run { cont?.finish() }
                 }
-            } catch {
-                print("[STT] ❌ Final transcription failed: \(error)")
             }
-            await MainActor.run {
-                cont?.finish()
-            }
+        } else {
+            print("[STT] ⚠️ No samples captured — nothing to transcribe")
+            cont?.finish()
         }
     }
 
@@ -187,6 +193,7 @@ final class STTService {
                 throw STTError.microphoneUnavailable
             }
 
+            // Set audio session for both recording and playback (TTS)
             if audioSession.category != .playAndRecord {
                 try audioSession.setCategory(.playAndRecord, mode: .default, options: [
                     .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
@@ -194,35 +201,20 @@ final class STTService {
             }
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
-            // Clean up prior state
-            audioEngine?.stop()
-            audioEngine?.inputNode.removeTap(onBus: 0)
-            audioSamples = []
-
-            let engine = AVAudioEngine()
-            self.audioEngine = engine
-
-            // Install tap at 16kHz mono — AVAudioEngine resamples from hardware rate automatically.
-            // WhisperKit requires 16kHz mono Float32 samples.
-            let inputNode = engine.inputNode
-            guard let format16kHz = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1) else {
+            // Use WhisperKit's AudioProcessor for recording. It:
+            // 1. Taps at the hardware's native sample rate (not 16kHz)
+            // 2. Resamples to 16kHz mono via AVAudioConverter in the tap callback
+            // 3. Accumulates samples in audioProcessor.audioSamples
+            // Our previous approach of installing a tap directly at 16kHz silently
+            // failed to deliver buffers on some devices (WhisperKit issue #261).
+            guard let processor = whisperPipe?.audioProcessor else {
                 throw STTError.microphoneUnavailable
             }
+            nonisolated(unsafe) let unsafeProcessor = processor
+            try unsafeProcessor.startRecordingLive(callback: nil)
 
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: format16kHz) { [weak self] buffer, _ in
-                guard let channelData = buffer.floatChannelData else { return }
-                let frameCount = Int(buffer.frameLength)
-                let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
-                // Dispatch to MainActor for thread-safe append
-                Task { @MainActor [weak self] in
-                    self?.audioSamples.append(contentsOf: samples)
-                }
-            }
-
-            engine.prepare()
-            try engine.start()
             isRecording = true
-            print("[STT] ✅ Recording started — WhisperKit, 16kHz tap installed")
+            print("[STT] ✅ Recording started — WhisperKit AudioProcessor (hardware format → 16kHz resample)")
 
             // Start periodic transcription task (~every 3 seconds)
             startPeriodicTranscription()
@@ -244,7 +236,8 @@ final class STTService {
                 guard let pipe = self.whisperPipe else { continue }
                 nonisolated(unsafe) let unsafePipe = pipe
 
-                let samples = self.audioSamples
+                // Read accumulated samples from WhisperKit's AudioProcessor
+                let samples = Array(unsafePipe.audioProcessor.audioSamples)
                 guard samples.count > 16000 else { continue } // Need at least 1 second of audio
 
                 do {
@@ -255,7 +248,7 @@ final class STTService {
                             self.partialTranscript = text
                             self.continuation?.yield(text)
                         }
-                        print("[STT] 📝 Partial: '\(text.prefix(60))...' (\(text.count) chars)")
+                        print("[STT] 📝 Partial (\(samples.count) samples): '\(text.prefix(60))...'")
                     }
                 } catch {
                     print("[STT] Periodic transcription error: \(error)")
