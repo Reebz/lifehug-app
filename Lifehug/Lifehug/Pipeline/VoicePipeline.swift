@@ -60,7 +60,13 @@ final class VoicePipeline {
     // MARK: - Public API
 
     func startListening() {
+        configureAudioSessionOnce()
         transition(to: .listening)
+    }
+
+    /// User tapped mic while listening — stop STT and process the transcript.
+    func finishListening() {
+        sttService.stopListening()
     }
 
     func interrupt() {
@@ -77,6 +83,7 @@ final class VoicePipeline {
         removeAudioObservers()
         // Deactivate audio session now that the voice conversation is truly over.
         // This lets other apps (music, podcasts) resume their audio.
+        audioSessionConfigured = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -401,6 +408,28 @@ final class VoicePipeline {
     }
 
     // MARK: - Memory Monitoring
+
+    // MARK: - Audio Session (Unified)
+
+    /// Configure audio session once at conversation start. All components
+    /// (WhisperKit AudioProcessor, KokoroManager TTS, system AVSpeechSynthesizer)
+    /// share this single session. Setting it once avoids AVAudioEngineConfigurationChange
+    /// notifications that can silently kill the recording tap.
+    private var audioSessionConfigured = false
+
+    private func configureAudioSessionOnce() {
+        guard !audioSessionConfigured else { return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .default, options: [
+                .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
+            ])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            audioSessionConfigured = true
+        } catch {
+            logger.error("Audio session configuration failed: \(error)")
+        }
+    }
 
     func checkMemoryPressure() {
         let pressure = MemoryMonitor.currentPressure

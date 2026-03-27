@@ -3,11 +3,10 @@ import AVFoundation
 import WhisperKit
 import os
 
-/// On-device speech-to-text using WhisperKit (OpenAI Whisper via CoreML).
-/// Uses WhisperKit's built-in AudioProcessor for recording (handles hardware
-/// format detection, resampling to 16kHz mono, and proper engine teardown).
-/// Transcribes periodically (~3s) for live partial results, and does a final
-/// full-buffer transcription on stop.
+/// On-device speech-to-text using WhisperKit's AudioStreamTranscriber.
+/// Creates a new AudioStreamTranscriber per recording session (actor handles
+/// recording, VAD, real-time transcription, and segment confirmation internally).
+/// Audio session is configured once by VoicePipeline at conversation start.
 @Observable
 @MainActor
 final class STTService {
@@ -23,9 +22,11 @@ final class STTService {
     private var whisperPipe: WhisperKit?
 
     private var continuation: AsyncStream<String>.Continuation?
-    private var setupTask: Task<Void, Never>?
+    private var transcriber: AudioStreamTranscriber?
     private var transcriptionTask: Task<Void, Never>?
-    private var finalTranscriptionTask: Task<Void, Never>?
+
+    /// Maximum recording duration in samples (3 minutes at 16kHz).
+    private let maxRecordingSamples = 16000 * 180
 
     // MARK: - Model Loading
 
@@ -93,20 +94,86 @@ final class STTService {
         }
         #else
         self.error = nil
-        logger.info("startListening — whisperPipe=\(self.whisperPipe != nil)")
+        self.partialTranscript = ""
 
-        let stream = AsyncStream<String> { continuation in
-            self.continuation = continuation
-            continuation.onTermination = { @Sendable _ in
-                Task { @MainActor in
-                    self.stopListening()
-                }
-            }
+        // Ensure WhisperKit is loaded
+        guard let pipe = whisperPipe, let tokenizer = pipe.tokenizer else {
+            logger.error("startListening called but WhisperKit not loaded")
+            self.error = "Voice recognition not available. Please restart."
+            return AsyncStream<String> { $0.finish() }
         }
 
-        setupTask = Task {
-            await self.startRecognitionAsync()
-            self.setupTask = nil
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        self.continuation = continuation
+
+        // Create a fresh AudioStreamTranscriber for each session.
+        // State (confirmedSegments, etc.) does not reset between cycles,
+        // so a new instance gives us a clean slate. This is cheap — it wraps
+        // existing model references, no CoreML reload.
+        //
+        // WhisperKit's protocol types (AudioEncoding, etc.) are not Sendable.
+        // We use nonisolated(unsafe) to cross the @MainActor → actor boundary.
+        // This is safe because the WhisperKit pipeline is created once and
+        // shared — we never mutate these references from multiple threads.
+        nonisolated(unsafe) let encoder = pipe.audioEncoder
+        nonisolated(unsafe) let extractor = pipe.featureExtractor
+        nonisolated(unsafe) let seeker = pipe.segmentSeeker
+        nonisolated(unsafe) let decoder = pipe.textDecoder
+        nonisolated(unsafe) let tok = tokenizer
+        nonisolated(unsafe) let processor = pipe.audioProcessor
+
+        let ast = AudioStreamTranscriber(
+            audioEncoder: encoder,
+            featureExtractor: extractor,
+            segmentSeeker: seeker,
+            textDecoder: decoder,
+            tokenizer: tok,
+            audioProcessor: processor,
+            decodingOptions: DecodingOptions(language: "en"),
+            requiredSegmentsForConfirmation: 2,
+            silenceThreshold: 0.3,
+            useVAD: true,
+            stateChangeCallback: { @Sendable [weak self] _, newState in
+                // Extract Sendable values before crossing to MainActor.
+                // State is structurally Sendable but not annotated as such.
+                let confirmed = newState.confirmedSegments.map(\.text)
+                let unconfirmed = newState.unconfirmedSegments.map(\.text)
+                let currentText = newState.currentText
+                let sampleCount = newState.lastBufferSize
+                Task { @MainActor [weak self] in
+                    self?.handleStateChange(
+                        confirmedTexts: confirmed,
+                        unconfirmedTexts: unconfirmed,
+                        currentText: currentText,
+                        sampleCount: sampleCount
+                    )
+                }
+            }
+        )
+        self.transcriber = ast
+
+        // startStreamTranscription() suspends for the entire recording —
+        // handles mic permission, recording start, and realtime transcription
+        // loop internally. This eliminates the stream-before-recording race.
+        transcriptionTask = Task {
+            self.isRecording = true
+            logger.info("Recording started — AudioStreamTranscriber")
+            do {
+                try await ast.startStreamTranscription()
+            } catch {
+                logger.error("Stream transcription error: \(error)")
+            }
+            // Recording ended (either stopped or error)
+            await MainActor.run {
+                self.isRecording = false
+                // Yield final transcript: confirmed + unconfirmed segments
+                // (short utterances may only be in unconfirmed)
+                self.yieldFinalTranscript()
+                self.continuation?.finish()
+                self.continuation = nil
+                self.transcriber = nil
+                logger.info("Recording session ended")
+            }
         }
 
         return stream
@@ -116,153 +183,66 @@ final class STTService {
     // MARK: - Stop Listening
 
     func stopListening() {
-        guard isRecording || setupTask != nil else { return }
+        guard isRecording || transcriptionTask != nil else { return }
         logger.info("stopListening")
 
-        setupTask?.cancel()
-        setupTask = nil
-        isRecording = false
-
-        // Cancel any prior final transcription (rapid stop/start guard)
-        finalTranscriptionTask?.cancel()
-        finalTranscriptionTask = nil
-
-        // Grab accumulated samples BEFORE stopping the recorder.
-        // NOTE: audioProcessor.audioSamples is a plain ContiguousArray with no
-        // synchronization (WhisperKit issue #442). The audio tap writes on the
-        // render thread while we read here. COW makes torn reads unlikely but
-        // theoretically possible. No clean fix without modifying WhisperKit.
-        nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
-        let samples: [Float]
-        if let processor {
-            samples = Array(processor.audioSamples)
-        } else {
-            samples = []
-        }
-
-        // Use WhisperKit's proper engine teardown (removeTap, disconnect, stop, reset)
-        processor?.stopRecording()
-
-        let cont = continuation
-        continuation = nil
-
-        // Await periodic transcription before running final — prevents concurrent
-        // transcribe() calls against the same CoreML/Metal pipeline.
-        let periodicTask = transcriptionTask
+        // Cancel the task (triggers CancellationError at suspension points)
+        transcriptionTask?.cancel()
         transcriptionTask = nil
 
-        logger.info("Captured \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
+        // Stop the transcriber (tears down audio engine properly)
+        let t = transcriber
+        Task { await t?.stopStreamTranscription() }
 
-        if !samples.isEmpty, let pipe = whisperPipe {
-            nonisolated(unsafe) let unsafePipe = pipe
-            finalTranscriptionTask = Task {
-                periodicTask?.cancel()
-                _ = await periodicTask?.value
+        // Free audio buffer memory before LLM inference (peak memory consumer)
+        nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
+        processor?.purgeAudioSamples(keepingLast: 0)
+    }
 
-                let text = await self.transcribe(samples: samples, with: unsafePipe)
-                await MainActor.run {
-                    if let text, !text.isEmpty {
-                        self.partialTranscript = text
-                        cont?.yield(text)
-                    }
-                    cont?.finish()
-                }
-            }
-        } else {
-            periodicTask?.cancel()
-            logger.debug("No samples — nothing to transcribe")
-            cont?.finish()
+    // MARK: - State Change Handling
+
+    /// Called on every AudioStreamTranscriber state mutation.
+    /// Combines confirmed + unconfirmed + current text for live partial results.
+    private func handleStateChange(
+        confirmedTexts: [String],
+        unconfirmedTexts: [String],
+        currentText: String,
+        sampleCount: Int
+    ) {
+        // Filter "Waiting for speech..." placeholder
+        let current = currentText == "Waiting for speech..." ? "" : currentText
+
+        // Build transcript: confirmed (stable) + unconfirmed (fluctuating) + current (live)
+        var parts: [String] = []
+        let confirmed = confirmedTexts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !confirmed.isEmpty { parts.append(confirmed) }
+        let unconfirmed = unconfirmedTexts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !unconfirmed.isEmpty { parts.append(unconfirmed) }
+        if !current.isEmpty { parts.append(current) }
+
+        let transcript = parts.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !transcript.isEmpty {
+            partialTranscript = transcript
+            continuation?.yield(transcript)
+        }
+
+        // Three-minute recording guard
+        nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
+        if let processor, processor.audioSamples.count > maxRecordingSamples {
+            logger.warning("Recording exceeded 3-minute cap — auto-stopping")
+            stopListening()
         }
     }
 
-    // MARK: - Private: Async Recognition Setup
-
-    private func startRecognitionAsync() async {
-        guard !Task.isCancelled else { return }
-
-        if whisperPipe == nil {
-            logger.info("WhisperKit not loaded — attempting load")
-            await loadASRModel()
-            guard whisperPipe != nil else {
-                logger.error("WhisperKit still nil after retry")
-                error = "Voice recognition not available. Please restart."
-                continuation?.finish()
-                return
-            }
-        }
-
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            guard audioSession.isInputAvailable else {
-                throw STTError.microphoneUnavailable
-            }
-
-            // Set audio session for both recording and playback (TTS)
-            if audioSession.category != .playAndRecord {
-                try audioSession.setCategory(.playAndRecord, mode: .default, options: [
-                    .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
-                ])
-            }
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-
-            // Use WhisperKit's AudioProcessor for recording. It:
-            // 1. Taps at the hardware's native sample rate (not 16kHz)
-            // 2. Resamples to 16kHz mono via AVAudioConverter in the tap callback
-            // 3. Accumulates samples in audioProcessor.audioSamples
-            // Our previous approach of installing a tap directly at 16kHz silently
-            // failed to deliver buffers on some devices (WhisperKit issue #261).
-            guard let processor = whisperPipe?.audioProcessor else {
-                throw STTError.microphoneUnavailable
-            }
-            nonisolated(unsafe) let unsafeProcessor = processor
-            try unsafeProcessor.startRecordingLive(callback: nil)
-
-            isRecording = true
-            logger.info("Recording started — WhisperKit AudioProcessor")
-
-            startPeriodicTranscription()
-
-        } catch {
-            logger.error("startRecognitionAsync failed: \(error)")
-            self.error = "Failed to start recording: \(error.localizedDescription)"
-            continuation?.finish()
-        }
-    }
-
-    /// Periodically transcribes accumulated audio for live partial results.
-    private func startPeriodicTranscription() {
-        transcriptionTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled else { break }
-                guard let self else { break }
-                guard let pipe = self.whisperPipe else { continue }
-                nonisolated(unsafe) let unsafePipe = pipe
-
-                let samples = Array(unsafePipe.audioProcessor.audioSamples)
-                guard samples.count > 16000 else { continue }
-
-                if let text = await self.transcribe(samples: samples, with: unsafePipe), !text.isEmpty {
-                    await MainActor.run {
-                        self.partialTranscript = text
-                        self.continuation?.yield(text)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Shared Transcription
-
-    /// Transcribes audio samples and returns the trimmed text, or nil on failure.
-    private nonisolated func transcribe(samples: [Float], with pipe: WhisperKit) async -> String? {
-        do {
-            let results = try await pipe.transcribe(audioArray: samples)
-            return results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            Logger(subsystem: "com.lifehug.app", category: "STT")
-                .error("Transcription failed: \(error)")
-            return nil
+    /// Yield the final combined transcript when recording ends.
+    private func yieldFinalTranscript() {
+        // partialTranscript already contains the latest combined text
+        // from handleStateChange. Yield it one last time to ensure
+        // the consumer gets the final version.
+        if !partialTranscript.isEmpty {
+            continuation?.yield(partialTranscript)
         }
     }
 }

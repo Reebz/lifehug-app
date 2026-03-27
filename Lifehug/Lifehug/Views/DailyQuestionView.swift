@@ -701,7 +701,7 @@ struct DailyQuestionView: View {
         } else if let pipeline {
             switch pipeline.state {
             case .listening:
-                sttService.stopListening()
+                pipeline.finishListening()
             case .speaking:
                 pipeline.interrupt()
             case .idle, .processing:

@@ -122,7 +122,7 @@ final class KokoroManager {
 
                 ttsManager = manager
                 populateVoiceNames()
-                configureAudioSession()
+                // Audio session is configured by VoicePipeline at conversation start
                 phase = .ready
                 statusMessage = nil
                 logger.info("FluidAudio Kokoro initialized successfully")
