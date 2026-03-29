@@ -143,10 +143,15 @@ final class VoicePipeline {
         terminationStabilityCount = 0
         lastDetectedPhrase = nil
 
+        print("[Pipeline] DIAG: isAuthorized=\(sttService.isAuthorized), isASRReady=\(sttService.isASRReady)")
+        print("[Pipeline] DIAG: audioSessionConfigured=\(audioSessionConfigured)")
         let stream = sttService.startListening()
         var terminatedByPhrase = false
+        var yieldCount = 0
 
         for await transcript in stream {
+            yieldCount += 1
+            print("[Pipeline] DIAG: yield #\(yieldCount), len=\(transcript.count), text='\(transcript.prefix(40))'")
             guard !Task.isCancelled else { return }
             // Cap transcript length to prevent unbounded memory growth
             if transcript.count > 50_000 {
@@ -187,12 +192,14 @@ final class VoicePipeline {
             finalTranscript = partialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        print("[Pipeline] DIAG: Stream ended. yieldCount=\(yieldCount), finalTranscript='\(finalTranscript.prefix(40))', terminated=\(terminatedByPhrase)")
         if finalTranscript.isEmpty {
             if terminatedByPhrase {
                 terminationDetected = true
                 onTerminationDetected?()
                 state = .idle
             } else {
+                print("[Pipeline] ❌ DIAG: Empty transcript → showing 'I didn't catch that'")
                 error = "I didn't catch that. Try again?"
                 state = .idle
             }

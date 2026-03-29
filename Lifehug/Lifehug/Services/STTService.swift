@@ -42,7 +42,7 @@ final class STTService {
                 download: true
             ))
             self.whisperPipe = pipe
-            logger.info("WhisperKit loaded successfully")
+            print("[STT] DIAG: WhisperKit loaded — tokenizer=\(pipe.tokenizer != nil), audioProcessor=\(type(of: pipe.audioProcessor))")
         } catch {
             logger.error("WhisperKit load failed: \(error)")
             self.error = "Voice recognition failed to load. Please restart."
@@ -97,11 +97,17 @@ final class STTService {
         self.partialTranscript = ""
 
         // Ensure WhisperKit is loaded
-        guard let pipe = whisperPipe, let tokenizer = pipe.tokenizer else {
-            logger.error("startListening called but WhisperKit not loaded")
+        guard let pipe = whisperPipe else {
+            print("[STT] ❌ DIAG: whisperPipe is nil — model not loaded")
             self.error = "Voice recognition not available. Please restart."
             return AsyncStream<String> { $0.finish() }
         }
+        guard let tokenizer = pipe.tokenizer else {
+            print("[STT] ❌ DIAG: tokenizer is nil — pipe exists but tokenizer missing")
+            self.error = "Voice recognition not available. Please restart."
+            return AsyncStream<String> { $0.finish() }
+        }
+        print("[STT] DIAG: whisperPipe=OK, tokenizer=OK, creating AudioStreamTranscriber")
 
         let (stream, continuation) = AsyncStream<String>.makeStream()
         self.continuation = continuation
@@ -157,22 +163,22 @@ final class STTService {
         // loop internally. This eliminates the stream-before-recording race.
         transcriptionTask = Task {
             self.isRecording = true
-            logger.info("Recording started — AudioStreamTranscriber")
+            print("[STT] DIAG: Task started, isRecording=true, calling startStreamTranscription...")
             do {
                 try await ast.startStreamTranscription()
+                print("[STT] DIAG: startStreamTranscription returned normally")
             } catch {
-                logger.error("Stream transcription error: \(error)")
+                print("[STT] ❌ DIAG: startStreamTranscription threw: \(error)")
             }
             // Recording ended (either stopped or error)
+            print("[STT] DIAG: Cleaning up — partialTranscript='\(self.partialTranscript.prefix(40))'")
             await MainActor.run {
                 self.isRecording = false
-                // Yield final transcript: confirmed + unconfirmed segments
-                // (short utterances may only be in unconfirmed)
                 self.yieldFinalTranscript()
                 self.continuation?.finish()
                 self.continuation = nil
                 self.transcriber = nil
-                logger.info("Recording session ended")
+                print("[STT] DIAG: Recording session ended, isRecording=false")
             }
         }
 
