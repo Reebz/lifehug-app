@@ -61,6 +61,19 @@ struct VoicePipelineTests {
         #expect(result == "My story ")
     }
 
+    // MARK: - Empty-transcript retry budget (U6)
+
+    @Test("empty transcript retries only in hands-free mode and within budget")
+    func emptyRetryBudget() {
+        // Hands-free, within budget → retry.
+        #expect(VoicePipeline.shouldRetryEmpty(autoReopenMic: true, consecutiveEmpty: 1, maxRetries: 2))
+        #expect(VoicePipeline.shouldRetryEmpty(autoReopenMic: true, consecutiveEmpty: 2, maxRetries: 2))
+        // Budget exhausted → surface an error instead.
+        #expect(!VoicePipeline.shouldRetryEmpty(autoReopenMic: true, consecutiveEmpty: 3, maxRetries: 2))
+        // Not hands-free → never auto-retry.
+        #expect(!VoicePipeline.shouldRetryEmpty(autoReopenMic: false, consecutiveEmpty: 1, maxRetries: 2))
+    }
+
     // MARK: - PipelineState Equatable
 
     @Test("PipelineState cases are equatable")

@@ -51,6 +51,11 @@ final class VoicePipeline {
     private var terminationStabilityCount: Int = 0
     private var lastDetectedPhrase: String?
 
+    /// Consecutive empty-transcript count, for bounded auto-retry before surfacing an
+    /// error (U6). Reset on any non-empty transcript.
+    private var consecutiveEmpty = 0
+    private let maxEmptyRetries = 2
+
     init(sttService: STTService, llmService: LLMService, ttsService: TTSService) {
         self.sttService = sttService
         self.llmService = llmService
@@ -199,9 +204,22 @@ final class VoicePipeline {
                 onTerminationDetected?()
                 state = .idle
             } else {
-                print("[Pipeline] ❌ DIAG: Empty transcript → showing 'I didn't catch that'")
-                error = "I didn't catch that. Try again?"
-                state = .idle
+                consecutiveEmpty += 1
+                if Self.shouldRetryEmpty(autoReopenMic: autoReopenMic, consecutiveEmpty: consecutiveEmpty, maxRetries: maxEmptyRetries) {
+                    logger.info("Empty transcript — auto-retry \(self.consecutiveEmpty)/\(self.maxEmptyRetries)")
+                    // A single transient empty result must not silently end a hands-free
+                    // conversation. Briefly pause, then reopen the mic.
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        guard let self, self.autoReopenMic else { return }
+                        self.startListening()
+                    }
+                } else {
+                    print("[Pipeline] ❌ DIAG: Empty transcript → showing 'I didn't catch that'")
+                    error = "I didn't catch that. Try again?"
+                    consecutiveEmpty = 0
+                    state = .idle
+                }
             }
             return
         }
@@ -213,8 +231,16 @@ final class VoicePipeline {
             return
         }
 
+        // Real transcript — clear the empty-retry budget.
+        consecutiveEmpty = 0
         onTranscriptFinalized?(finalTranscript)
         processUserInput(finalTranscript)
+    }
+
+    /// Whether an empty transcript should auto-reopen the mic (U6) rather than
+    /// surface an error: only in hands-free mode and within the retry budget.
+    nonisolated static func shouldRetryEmpty(autoReopenMic: Bool, consecutiveEmpty: Int, maxRetries: Int) -> Bool {
+        autoReopenMic && consecutiveEmpty <= maxRetries
     }
 
     /// Removes any trailing termination phrase from the transcript.

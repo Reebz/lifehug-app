@@ -280,6 +280,24 @@ struct ConversationView: View {
                     .padding(.horizontal, 16)
             }
 
+            // Self-clearing error toast — surfaces STT/TTS/model failures (U6).
+            if let errorMsg = pipeline?.error {
+                Text(errorMsg)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.mutedRose))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        Task {
+                            try? await Task.sleep(for: .seconds(5))
+                            pipeline?.error = nil
+                        }
+                    }
+            }
+
             HStack(spacing: 16) {
                 if pipeline?.state == .listening {
                     HStack(spacing: 6) {
