@@ -65,19 +65,23 @@ struct LLMServiceTests {
         #expect(service.pendingSystemPrompt == "SYSTEM_PROMPT_MARKER")
     }
 
-    @Test("streamResponse surfaces noActiveSession when the container is still nil")
-    func streamResponseThrowsWithoutContainer() async {
+    @Test("streamResponse yields a canned response on the simulator (U12)")
+    func streamResponseSimulatorMock() async {
+        // On the simulator streamResponse serves a canned streamed response so the full
+        // voice loop is exercisable without a Metal GPU (U12). The device path's
+        // noActiveSession-when-container-nil behavior is verified on device.
         let service = LLMService()
         service.startNewSession(systemPrompt: "x")
-        var caught: Error?
+        var chunks: [String] = []
         do {
-            for try await _ in service.streamResponse(to: "hello") {
-                // no chunks expected — the stream should finish with an error
+            for try await chunk in service.streamResponse(to: "hello") {
+                chunks.append(chunk)
             }
         } catch {
-            caught = error
+            Issue.record("simulator stream should not throw: \(error)")
         }
-        #expect((caught as? LLMError) == .noActiveSession)
+        #expect(!chunks.isEmpty)
+        #expect(chunks.joined().contains("interesting"))
     }
 
     @Test("a second startNewSession replaces the retained prompt")

@@ -5,7 +5,6 @@ import os
 @Observable
 @MainActor
 final class TTSService {
-    var isSpeaking: Bool = false
     var forceDegradedToSystem: Bool = false
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "TTS")
@@ -30,7 +29,6 @@ final class TTSService {
 
     func speak(_ sentence: String) async {
         if useKokoro {
-            isSpeaking = true
             do {
                 try await kokoroManager?.speak(sentence)
             } catch {
@@ -39,18 +37,15 @@ final class TTSService {
                 // Degrade for THIS utterance only — do NOT latch forceDegradedToSystem
                 // for a transient playback/synthesis failure. The permanent-latch and
                 // its recovery are handled by memory-pressure logic (U10).
-                isSpeaking = false
                 await speakViaSystem(sentence)
                 return
             }
-            isSpeaking = false
             return
         }
         await speakViaSystem(sentence)
     }
 
     private func speakViaSystem(_ sentence: String) async {
-        isSpeaking = true
         speakGeneration += 1
         let generation = speakGeneration
 
@@ -103,17 +98,12 @@ final class TTSService {
                 }
             }
         }
-        // Timeout handling is inside the continuation above
-        if generation == speakGeneration {
-            isSpeaking = false
-        }
     }
 
     func stop() {
         speakGeneration += 1
         kokoroManager?.stopPlayback()
         synthesizer.stopSpeaking(at: .immediate)
-        isSpeaking = false
         // The delegate's double-resume guard handles any pending continuation safely.
     }
 
@@ -121,6 +111,12 @@ final class TTSService {
     /// when its generation matches the current one (else a newer utterance is live).
     nonisolated static func timeoutShouldStop(timeoutGeneration: Int, currentGeneration: Int) -> Bool {
         timeoutGeneration == currentGeneration
+    }
+
+    /// Clear the cached system voice so a newly-installed or higher-quality voice is
+    /// picked up on the next utterance (system-voice quality only).
+    func invalidateVoiceCache() {
+        Self.cachedVoice = nil
     }
 
     func degradeToSystemTTS() {

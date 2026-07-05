@@ -59,10 +59,17 @@ struct LifehugApp: App {
                     switch newPhase {
                     case .background:
                         sessionState.flushAutoSave()
+                        // Release the mic on background — UIBackgroundModes=[audio]
+                        // otherwise keeps the recorder hot (privacy/battery), and a
+                        // stale recorder can linger on return (U12).
+                        sttService.stopListening()
                         ttsService.stop()
                         kokoroManager.unloadEngine()
                         llmService.unloadModel()
                     case .active:
+                        // Drop the cached system voice so a newly-installed/higher-quality
+                        // voice is picked up (system-voice quality only, U12).
+                        ttsService.invalidateVoiceCache()
                         Task {
                             // LLM reload is driven in exactly one place — ModelState's
                             // scene handler above (single-owner: no separate LLMService

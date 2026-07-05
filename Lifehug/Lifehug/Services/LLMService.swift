@@ -135,6 +135,22 @@ final class LLMService {
 
     func streamResponse(to userMessage: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
+            #if targetEnvironment(simulator)
+            // Canned streamed response so the full voice loop (LLM → TTS) is exercisable
+            // on the simulator without a Metal GPU (mirrors respond()).
+            self.isGenerating = true
+            let mockTask = Task {
+                let mock = "That's really interesting — tell me more about what that meant to you."
+                for word in mock.split(separator: " ") {
+                    guard !Task.isCancelled else { break }
+                    continuation.yield(String(word) + " ")
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+                continuation.finish()
+                await MainActor.run { self.isGenerating = false }
+            }
+            continuation.onTermination = { _ in mockTask.cancel() }
+            #else
             guard let session = self.ensureSession() else {
                 continuation.finish(throwing: LLMError.noActiveSession)
                 return
@@ -185,6 +201,7 @@ final class LLMService {
             continuation.onTermination = { _ in
                 task.cancel()
             }
+            #endif
         }
     }
 
