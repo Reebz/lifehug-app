@@ -462,7 +462,9 @@ final class VoicePipeline {
         let pressure = MemoryMonitor.currentPressure
         switch pressure {
         case .normal:
-            break
+            // Recover from any prior degradation once memory is healthy (P2-2) — the
+            // latch previously cleared only on scene .active.
+            ttsService.recoverFromDegradationIfNeeded()
         case .elevated:
             // Degrade to system TTS but keep LLM loaded
             logger.warning("Elevated memory pressure (\(MemoryMonitor.availableMB)MB) — degrading to system TTS")

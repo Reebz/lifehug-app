@@ -29,6 +29,18 @@ struct TTSServiceTests {
         #expect(tts.useKokoro == false)
     }
 
+    // MARK: - U10: recoverable degradation
+
+    @Test("recoverFromDegradationIfNeeded clears the force-degrade latch")
+    func recoverClearsLatch() {
+        let tts = TTSService()
+        tts.forceDegradedToSystem = true
+        // Kokoro is disabled by default in tests, so no reload is attempted — only the
+        // latch clears. The unload/reload race handling is device-verified.
+        tts.recoverFromDegradationIfNeeded()
+        #expect(tts.forceDegradedToSystem == false)
+    }
+
     // MARK: - U5: timeout generation gate
 
     @Test("A fired timeout stops only its own generation")

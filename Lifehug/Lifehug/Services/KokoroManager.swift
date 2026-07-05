@@ -46,6 +46,12 @@ final class KokoroManager {
     /// Guards against concurrent loadEngine() calls.
     private var isLoading = false
 
+    /// True while a synthesize() call is in flight. unloadEngine defers teardown until
+    /// this clears so it never races the CoreML model mid-inference (P2-7).
+    private var isSynthesizing = false
+    /// Set when unloadEngine is requested during synthesis; performed once synth ends.
+    private var pendingUnload = false
+
     // MARK: - Computed Properties
 
     var isReady: Bool { phase == .ready }
@@ -154,6 +160,10 @@ final class KokoroManager {
         }
         guard MemoryMonitor.canLoadKokoro else {
             logger.warning("Skipping Kokoro load — memory pressure too high (\(MemoryMonitor.availableMB)MB available)")
+            // Don't silently give up: mark failed with a retriable message so the
+            // Settings affordance is reachable and memory-normal recovery retries (P3).
+            phase = .failed
+            errorMessage = "Voice model paused (low memory). It will retry when memory frees up."
             return
         }
 
@@ -184,16 +194,37 @@ final class KokoroManager {
     }
 
     func unloadEngine() {
+        // Defer teardown if a synthesize() is in flight — tearing down the manager
+        // mid-inference races the CoreML model (P2-7). Completed by speak()'s cleanup.
+        guard !isSynthesizing else {
+            pendingUnload = true
+            logger.info("Kokoro unload deferred — synthesis in flight")
+            return
+        }
+        performUnload()
+    }
+
+    private func performUnload() {
         audioPlayer?.stop()
         audioPlayer = nil
+        // Resume any stranded playback continuation before dropping the delegate (P3),
+        // mirroring stopPlayback so speak() never hangs on an un-resumed continuation.
+        playerDelegate?.forceComplete()
         playerDelegate = nil
         ttsManager?.cleanup()
         ttsManager = nil
         cachedVoiceNames = []
+        pendingUnload = false
         if phase == .ready {
             phase = .idle
         }
         logger.info("Kokoro engine unloaded")
+    }
+
+    /// Runs a deferred unload once synthesis completes.
+    private func performPendingUnloadIfNeeded() {
+        guard pendingUnload else { return }
+        performUnload()
     }
 
     func deleteModel() {
@@ -245,13 +276,31 @@ final class KokoroManager {
         // the @MainActor boundary into the async synthesize() call.
         nonisolated(unsafe) let unsafeManager = ttsManager!
         let voice = Self.selectedVoice
-        let audioData = try await unsafeManager.synthesize(
-            text: text,
-            voice: voice,
-            voiceSpeed: 1.0,
-            variantPreference: .fifteenSecond,
-            deEss: true
-        )
+
+        // Mark synthesis in flight so a concurrent unloadEngine() defers (P2-7). Perform
+        // any deferred unload once synthesis finishes, whether it succeeds or throws.
+        isSynthesizing = true
+        let audioData: Data
+        do {
+            audioData = try await unsafeManager.synthesize(
+                text: text,
+                voice: voice,
+                voiceSpeed: 1.0,
+                variantPreference: .fifteenSecond,
+                deEss: true
+            )
+        } catch {
+            isSynthesizing = false
+            performPendingUnloadIfNeeded()
+            throw error
+        }
+        isSynthesizing = false
+        performPendingUnloadIfNeeded()
+
+        // If an unload was deferred and just ran, the manager is gone — don't play.
+        guard ttsManager != nil else {
+            throw KokoroError.engineNotLoaded
+        }
 
         logger.info("Kokoro synthesis complete — \(audioData.count) bytes WAV")
 

@@ -128,6 +128,19 @@ final class TTSService {
         logger.warning("Degraded to system TTS (memory pressure)")
     }
 
+    /// Recover from a prior degradation once memory is healthy again (P2-2). Clears the
+    /// force-degrade latch and reloads Kokoro if pressure had unloaded or failed it, so
+    /// degradation is recoverable within a session rather than a one-way latch.
+    func recoverFromDegradationIfNeeded() {
+        if forceDegradedToSystem {
+            forceDegradedToSystem = false
+            logger.info("Memory normalized — cleared system-TTS degradation latch")
+        }
+        if KokoroManager.isEnabled, kokoroManager?.isReady == false {
+            Task { [kokoroManager] in await kokoroManager?.loadEngine() }
+        }
+    }
+
     /// Unload the Kokoro model weights (~80MB) to reclaim memory.
     func unloadKokoroModel() {
         kokoroManager?.unloadEngine()
