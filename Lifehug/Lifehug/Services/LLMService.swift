@@ -150,11 +150,15 @@ final class LLMService {
             // The AsyncThrowingStream build closure is @Sendable, so this Task
             // does NOT inherit MainActor — token generation runs off-MainActor,
             // allowing TTS playback to overlap.
-            Task {
+            let task = Task {
                 var tokenCount = 0
 
                 do {
                     for try await chunk in unsafeSession.streamResponse(to: userMessage) {
+                        // Stop as soon as the consumer cancels (stop/interrupt): this
+                        // halts MLX generation instead of burning GPU and mutating the
+                        // shared session after the pipeline moved on (U8).
+                        guard !Task.isCancelled else { break }
                         let cleaned = Self.cleanChunk(chunk)
                         if !cleaned.isEmpty {
                             continuation.yield(cleaned)
@@ -173,6 +177,13 @@ final class LLMService {
                     self.isGenerating = false
                     self.logger.info("Generated \(tokenCount) tokens")
                 }
+            }
+
+            // When the consumer stops iterating (cancel/interrupt/teardown), cancel the
+            // producer so generation actually stops. Without this the unstructured task
+            // ran to completion regardless of VoicePipeline's activeTask?.cancel().
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
