@@ -8,7 +8,19 @@ final class TTSService {
     var forceDegradedToSystem: Bool = false
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "TTS")
-    private let synthesizer = AVSpeechSynthesizer()
+
+    /// System speech synthesizer, created lazily on first system-TTS use. Building it
+    /// eagerly spins up Apple's TextToSpeech/AXSpeech subsystem, which over-releases a
+    /// Swift object on teardown on the iOS 26 simulator (SIGABRT: "pointer being freed
+    /// was not allocated"). Deferring construction means Kokoro-only sessions — and unit
+    /// tests that construct TTSService without ever speaking — never touch it.
+    private var _synthesizer: AVSpeechSynthesizer?
+    private var synthesizer: AVSpeechSynthesizer {
+        if let existing = _synthesizer { return existing }
+        let created = AVSpeechSynthesizer()
+        _synthesizer = created
+        return created
+    }
     private var delegate: TTSDelegate?
     private var speakGeneration: Int = 0
     private(set) var kokoroManager: KokoroManager?
@@ -103,7 +115,9 @@ final class TTSService {
     func stop() {
         speakGeneration += 1
         kokoroManager?.stopPlayback()
-        synthesizer.stopSpeaking(at: .immediate)
+        // Only touch the synthesizer if one was ever created — stopping never needs to
+        // spin up the system speech subsystem (see `synthesizer` lazy note).
+        _synthesizer?.stopSpeaking(at: .immediate)
         // The delegate's double-resume guard handles any pending continuation safely.
     }
 
