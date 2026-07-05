@@ -1,5 +1,5 @@
 {
-  "originHash" : "06a2907800fa531515efd86a7ebe070c48631bb21f2d23dca21deab98e810dcf",
+  "originHash" : "0f80ac23347625dce9e9b42987521e915686cc659621bcf05abc6ef05f41b28d",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FluidInference/FluidAudio.git",
       "state" : {
-        "revision" : "2d2979486bd7125558fe783741ef9a2757b3c1bb",
-        "version" : "0.12.5"
+        "revision" : "aa800cb9630dc14727507ac0c955fa4d7ca415ec",
+        "version" : "0.12.6"
       }
     },
     {
@@ -35,6 +35,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "edd42fcd947eea0b19665248acf2975a28ddf58b"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {
+        "revision" : "626b5b7b2f45e1b0b1c6f4a309296d1d21d7311b",
+        "version" : "1.7.1"
       }
     },
     {
@@ -125,6 +134,15 @@
       "state" : {
         "revision" : "eed7264ac5e4ec5dfa6165c6e5c5577364344fe4",
         "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "whisperkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Reebz/WhisperKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "aed3b1cc439f6c506c0b6ae8c959eed0073a498e"
       }
     },
     {
