@@ -255,8 +255,10 @@ final class KokoroManager {
         logger.info("Kokoro synthesis complete — \(audioData.count) bytes WAV")
 
         guard !audioData.isEmpty else {
-            logger.warning("Kokoro returned empty audio data — skipping playback")
-            return
+            // Empty output is a failure, not a silent skip — surface it so TTSService
+            // speaks this utterance via the system voice instead of dropping it (P2-1).
+            logger.warning("Kokoro returned empty audio data")
+            throw KokoroError.emptyAudio
         }
 
         // Play WAV data using AVAudioPlayer — much simpler than AVAudioEngine
@@ -275,12 +277,19 @@ final class KokoroManager {
     // MARK: - Audio Playback
 
     private func playWAVData(_ data: Data) async throws {
-        // Ensure audio session is active
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // Ensure the audio session is active. A failure here is a real reason to fall
+        // back to the system voice, not something to swallow (was `try?`).
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            logger.error("Audio session activation failed before playback: \(error)")
+            throw KokoroError.playbackFailed
+        }
 
         let player = try AVAudioPlayer(data: data)
+        var playbackStarted = true
 
-        // Use a delegate to bridge callback to async continuation
+        // Use a delegate to bridge the completion callback to an async continuation.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let delegate = PlayerDelegate {
                 continuation.resume()
@@ -288,11 +297,21 @@ final class KokoroManager {
             self.playerDelegate = delegate
             self.audioPlayer = player
             player.delegate = delegate
-            player.play()
+            if !player.play() {
+                // play() failed to start — the completion callback will never fire, so
+                // resume now via the double-resume guard and report failure below.
+                logger.error("AVAudioPlayer.play() returned false — playback did not start")
+                playbackStarted = false
+                delegate.forceComplete()
+            }
         }
 
         audioPlayer = nil
         playerDelegate = nil
+
+        if !playbackStarted {
+            throw KokoroError.playbackFailed
+        }
     }
 
     // MARK: - Audio Session
@@ -323,11 +342,17 @@ final class KokoroManager {
 
     enum KokoroError: LocalizedError {
         case engineNotLoaded
+        case playbackFailed
+        case emptyAudio
 
         var errorDescription: String? {
             switch self {
             case .engineNotLoaded:
                 return "Voice engine is not loaded."
+            case .playbackFailed:
+                return "Voice playback failed to start."
+            case .emptyAudio:
+                return "Voice synthesis produced no audio."
             }
         }
     }

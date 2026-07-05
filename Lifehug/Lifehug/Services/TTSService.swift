@@ -34,10 +34,11 @@ final class TTSService {
             do {
                 try await kokoroManager?.speak(sentence)
             } catch {
-                logger.warning("Kokoro synthesis failed, degrading to system TTS: \(error)")
+                logger.warning("Kokoro synthesis/playback failed, using system voice for this utterance: \(error)")
                 kokoroManager?.stopPlayback()
-                forceDegradedToSystem = true
-                // Fall through to system TTS for this sentence
+                // Degrade for THIS utterance only — do NOT latch forceDegradedToSystem
+                // for a transient playback/synthesis failure. The permanent-latch and
+                // its recovery are handled by memory-pressure logic (U10).
                 isSpeaking = false
                 await speakViaSystem(sentence)
                 return
@@ -86,8 +87,14 @@ final class TTSService {
                         guard !alreadyResumed else { return }
                         alreadyResumed = true
                         Task { @MainActor in
-                            self?.logger.warning("System TTS timed out after 15s — stopping synthesizer")
-                            self?.synthesizer.stopSpeaking(at: .immediate)
+                            guard let self else { continuation.resume(); return }
+                            // Only stop the synthesizer if this timeout still belongs to
+                            // the current utterance — a stale timeout must not cut off a
+                            // newer one (generation gate).
+                            if Self.timeoutShouldStop(timeoutGeneration: generation, currentGeneration: self.speakGeneration) {
+                                self.logger.warning("System TTS timed out after 15s — stopping synthesizer")
+                                self.synthesizer.stopSpeaking(at: .immediate)
+                            }
                             continuation.resume()
                         }
                     }
@@ -108,6 +115,12 @@ final class TTSService {
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
         // The delegate's double-resume guard handles any pending continuation safely.
+    }
+
+    /// Whether a fired system-TTS timeout should still stop the synthesizer: only
+    /// when its generation matches the current one (else a newer utterance is live).
+    nonisolated static func timeoutShouldStop(timeoutGeneration: Int, currentGeneration: Int) -> Bool {
+        timeoutGeneration == currentGeneration
     }
 
     func degradeToSystemTTS() {
@@ -166,6 +179,13 @@ private final class TTSDelegate: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        onFinished()
+    }
+
+    /// `stopSpeaking(at:)` fires didCancel, not didFinish. Without this, a stopped
+    /// utterance never resumes its continuation and never cancels its timeout task,
+    /// leaking a timer that later stops a subsequent utterance (U5).
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         onFinished()
     }
 }
