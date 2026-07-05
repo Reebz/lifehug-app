@@ -339,7 +339,9 @@ struct ConversationView: View {
 
                 Button {
                     if pipeline?.state == .listening {
-                        pipeline?.stopAll()
+                        // Stop-while-listening should PROCESS the captured transcript,
+                        // not discard it. stopAll() is reserved for explicit teardown (P2-6).
+                        pipeline?.finishListening()
                     } else if pipeline?.state == .speaking {
                         pipeline?.interrupt()
                     } else if sttService.asrState == .ready {
@@ -524,6 +526,9 @@ struct ConversationView: View {
 
     @MainActor
     private func endSession() async {
+        // Re-entrancy guard: a double End Session (or termination + tap) must not
+        // double-save (P3).
+        guard !isSaving else { return }
         guard let question = session.currentQuestion else { return }
         isSaving = true
 
@@ -545,7 +550,7 @@ struct ConversationView: View {
                 answeredDate: Date(),
                 answerText: answerText,
                 followUpQuestions: [],
-                source: .text
+                source: voiceMode ? .voice : .text
             )
 
             // 4. Save answer via StorageService

@@ -331,6 +331,8 @@ final class VoicePipeline {
                     await ttsService.speak(batch)
                 }
 
+                // Don't commit an aborted response to history (P3).
+                guard !Task.isCancelled else { return }
                 onResponseGenerated?(fullResponse)
 
                 // Auto-reopen mic for conversation loop

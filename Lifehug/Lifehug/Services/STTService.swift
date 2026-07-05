@@ -50,8 +50,10 @@ final class STTService {
     /// transcription when the streaming pass produced nothing.
     static let finalTranscriptionMinSamples = 8000
 
-    /// Guards the ordered teardown so it runs exactly once per session.
-    private var isTearingDown = false
+    /// Monotonic session token. A stale session's teardown only touches the shared
+    /// continuation/transcriber state when its captured id still matches the current
+    /// one, so it cannot finish or nil a newer session's stream (P2-5).
+    private var sessionID = 0
 
     // MARK: - Model Loading
 
@@ -189,6 +191,8 @@ final class STTService {
 
         let (stream, continuation) = AsyncStream<String>.makeStream()
         self.continuation = continuation
+        sessionID += 1
+        let mySessionID = sessionID
 
         // Create a fresh AudioStreamTranscriber for each session.
         // State (confirmedSegments, etc.) does not reset between cycles,
@@ -236,7 +240,6 @@ final class STTService {
         )
         self.transcriber = ast
         self.recordingStart = Date()
-        self.isTearingDown = false
 
         // startStreamTranscription() suspends for the entire recording —
         // handles mic permission, recording start, and realtime transcription
@@ -250,9 +253,9 @@ final class STTService {
             } catch {
                 print("[STT] ❌ DIAG: startStreamTranscription threw: \(error)")
             }
-            // Recording ended (either stopped or error). Run the single ordered
-            // teardown: stop the tap, final-transcribe, purge, then finish the stream.
-            await self.finishRecording()
+            // Recording ended (either stopped or error). Run the single ordered teardown
+            // against THIS session's captured continuation/transcriber/id (P2-5).
+            await self.finishRecording(sessionID: mySessionID, continuation: continuation, transcriber: ast)
         }
 
         return stream
@@ -287,38 +290,51 @@ final class STTService {
         await task?.value
     }
 
-    /// Single, ordered teardown for a recording session. Runs once (idempotent via
-    /// `isTearingDown`) after the realtime loop has exited: stop the tap so the
-    /// captured buffer is static, run the authoritative final transcription (P1-1),
-    /// purge the buffer (P1-3, after stop), then finish the stream.
-    private func finishRecording() async {
-        guard !isTearingDown else { return }
-        isTearingDown = true
+    /// Single, ordered teardown for a recording session. Called once per session from
+    /// its own transcription task, after the realtime loop has exited: stop the tap so
+    /// the captured buffer is static, run the authoritative final transcription (P1-1),
+    /// purge the buffer (P1-3, after stop), then finish the stream. Operates on the
+    /// session's OWN captured continuation/transcriber so it never disturbs a newer
+    /// session, and only clears shared refs when this session is still current (P2-5).
+    private func finishRecording(
+        sessionID: Int,
+        continuation: AsyncStream<String>.Continuation,
+        transcriber ast: AudioStreamTranscriber
+    ) async {
         print("[STT] DIAG: finishRecording — partialTranscript='\(partialTranscript.prefix(40))'")
 
         // Ensure the tap is stopped even on the error-return path, so `audioSamples`
         // stops growing before we read or purge it (idempotent).
-        if let ast = transcriber {
-            await ast.stopStreamTranscription()
-        }
+        await ast.stopStreamTranscription()
 
         // Authoritative final transcription: if streaming produced nothing but we
-        // captured a non-trivial buffer, transcribe the whole buffer once.
-        await runFinalTranscriptionIfNeeded()
+        // captured a non-trivial buffer, transcribe the whole buffer once. Skip if a
+        // newer session has already taken over (the shared buffer is no longer ours).
+        if sessionID == self.sessionID {
+            await runFinalTranscriptionIfNeeded()
 
-        // Purge AFTER the tap has stopped and the final pass has read the buffer
-        // (ordering fix; no lock on the render thread — KTD6).
-        nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
-        processor?.purgeAudioSamples(keepingLast: 0)
+            // Purge AFTER the tap has stopped and the final pass has read the buffer
+            // (ordering fix; no lock on the render thread — KTD6).
+            nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
+            processor?.purgeAudioSamples(keepingLast: 0)
+        }
 
-        isRecording = false
-        recordingStart = nil
-        yieldFinalTranscript()
-        continuation?.finish()
-        continuation = nil
-        transcriber = nil
-        transcriptionTask = nil
-        print("[STT] DIAG: Recording session ended, isRecording=false")
+        // Yield the final transcript to THIS session's stream, then finish it.
+        if !partialTranscript.isEmpty {
+            continuation.yield(partialTranscript)
+        }
+        continuation.finish()
+
+        // Only clear shared state if this is still the current session — a stale
+        // teardown must not nil a newer session's continuation/transcriber (P2-5).
+        if sessionID == self.sessionID {
+            isRecording = false
+            recordingStart = nil
+            self.continuation = nil
+            self.transcriber = nil
+            self.transcriptionTask = nil
+        }
+        print("[STT] DIAG: Recording session ended (id=\(sessionID))")
     }
 
     /// If the streaming pass yielded no text but enough audio was captured, run a
@@ -401,16 +417,6 @@ final class STTService {
         if Self.recordingExceededCap(start: recordingStart, now: Date(), cap: maxRecordingSeconds) {
             logger.warning("Recording exceeded 3-minute cap — auto-stopping")
             stopListening()
-        }
-    }
-
-    /// Yield the final combined transcript when recording ends.
-    private func yieldFinalTranscript() {
-        // partialTranscript already contains the latest combined text
-        // from handleStateChange. Yield it one last time to ensure
-        // the consumer gets the final version.
-        if !partialTranscript.isEmpty {
-            continuation?.yield(partialTranscript)
         }
     }
 }
