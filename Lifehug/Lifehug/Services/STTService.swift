@@ -99,7 +99,11 @@ final class STTService {
         let modelFolder = try await WhisperKit.download(
             variant: "small.en",
             from: "argmaxinc/whisperkit-coreml",
-            progressCallback: { [weak self] progress in
+            // `@Sendable` so this non-MainActor closure can be handed to WhisperKit's
+            // nonisolated `download` without "sending main-actor-isolated value" —
+            // mirrors the `stateChangeCallback` closure below. It only reads a Sendable
+            // Double and hops back to the MainActor via a Task.
+            progressCallback: { @Sendable [weak self] progress in
                 let fraction = progress.fractionCompleted
                 Task { @MainActor [weak self] in
                     self?.downloadProgress = fraction
