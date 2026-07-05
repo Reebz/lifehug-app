@@ -47,8 +47,10 @@ final class STTService {
     private var recordingStart: Date?
 
     /// Minimum captured samples (~0.5s at 16kHz) to attempt a final full-buffer
-    /// transcription when the streaming pass produced nothing.
-    static let finalTranscriptionMinSamples = 8000
+    /// transcription when the streaming pass produced nothing. `nonisolated` so the
+    /// `nonisolated` pure helper `shouldRunFinalTranscription` can read this constant
+    /// under Swift 6.2 strict concurrency (it is an immutable compile-time value).
+    nonisolated static let finalTranscriptionMinSamples = 8000
 
     /// Monotonic session token. A stale session's teardown only touches the shared
     /// continuation/transcriber state when its captured id still matches the current
