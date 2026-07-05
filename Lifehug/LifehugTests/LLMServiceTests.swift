@@ -53,4 +53,38 @@ struct LLMServiceTests {
         #expect(prompt.contains("O'Brien-Smith"))
         #expect(prompt.contains("\"big picture\""))
     }
+
+    // MARK: - Lazy session lifecycle (U1 / R4)
+
+    @Test("startNewSession retains the pending prompt when the container is nil")
+    func startNewSessionRetainsPendingPrompt() {
+        // On the simulator MLX never loads, so modelContainer is always nil — this is
+        // the cold-launch shape: the prompt must be retained for later materialization.
+        let service = LLMService()
+        service.startNewSession(systemPrompt: "SYSTEM_PROMPT_MARKER")
+        #expect(service.pendingSystemPrompt == "SYSTEM_PROMPT_MARKER")
+    }
+
+    @Test("streamResponse surfaces noActiveSession when the container is still nil")
+    func streamResponseThrowsWithoutContainer() async {
+        let service = LLMService()
+        service.startNewSession(systemPrompt: "x")
+        var caught: Error?
+        do {
+            for try await _ in service.streamResponse(to: "hello") {
+                // no chunks expected — the stream should finish with an error
+            }
+        } catch {
+            caught = error
+        }
+        #expect((caught as? LLMError) == .noActiveSession)
+    }
+
+    @Test("a second startNewSession replaces the retained prompt")
+    func startNewSessionReplacesPendingPrompt() {
+        let service = LLMService()
+        service.startNewSession(systemPrompt: "first")
+        service.startNewSession(systemPrompt: "second")
+        #expect(service.pendingSystemPrompt == "second")
+    }
 }

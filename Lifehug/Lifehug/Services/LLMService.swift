@@ -14,6 +14,11 @@ final class LLMService {
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
 
+    /// System prompt captured by `startNewSession`, retained so the session can be
+    /// created lazily once the model container finishes loading (cold-launch fix, R4).
+    /// `private(set)` keeps the setter internal-only but exposes the getter to tests.
+    private(set) var pendingSystemPrompt: String?
+
     /// Dynamic — reads the currently selected model. Must NOT be `let` (would go stale after model switch).
     private static var modelID: String { ModelConfig.LLM.modelID }
 
@@ -68,8 +73,14 @@ final class LLMService {
     // MARK: - Conversation
 
     func startNewSession(systemPrompt: String) {
+        // Always retain the prompt so a session can materialize later even if the
+        // container is not ready yet (cold launch — loadModel() may still be running).
+        pendingSystemPrompt = systemPrompt
+
         guard let container = modelContainer else {
-            logger.error("Cannot start session — model not loaded")
+            // Cold launch: defer session creation to first use once the model loads.
+            chatSession = nil
+            logger.info("Model not loaded — session creation deferred to first use")
             return
         }
 
@@ -81,9 +92,28 @@ final class LLMService {
         logger.info("New chat session started")
     }
 
+    /// Returns the active session, creating it lazily from the pending prompt if the
+    /// container has since loaded. Returns nil only when the container is still absent.
+    private func ensureSession() -> ChatSession? {
+        if let chatSession {
+            return chatSession
+        }
+        guard let container = modelContainer, let prompt = pendingSystemPrompt else {
+            return nil
+        }
+        let session = ChatSession(
+            container,
+            instructions: prompt,
+            generateParameters: generateParameters
+        )
+        chatSession = session
+        logger.info("Chat session materialized lazily after model load")
+        return session
+    }
+
     func streamResponse(to userMessage: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            guard let session = self.chatSession else {
+            guard let session = self.ensureSession() else {
                 continuation.finish(throwing: LLMError.noActiveSession)
                 return
             }
@@ -133,7 +163,7 @@ final class LLMService {
         isGenerating = false
         return "That's really interesting — tell me more about what that meant to you."
         #else
-        guard let session = chatSession else {
+        guard let session = ensureSession() else {
             throw LLMError.noActiveSession
         }
 
