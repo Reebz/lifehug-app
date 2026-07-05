@@ -106,4 +106,34 @@ struct STTServiceTests {
         }
         #expect(yielded.contains { !$0.isEmpty })
     }
+
+    // MARK: - Final transcription + cap decision logic (U3)
+    // The real full-buffer transcription is device-only (WhisperKit needs CoreML),
+    // so the pure decision/formatting helpers are the unit-testable slice here; the
+    // end-to-end recovery is verified on device in U14.
+
+    @Test("final transcription runs only when partial is empty and buffer is large enough")
+    func finalTranscriptionGate() {
+        #expect(STTService.shouldRunFinalTranscription(partialIsEmpty: true, sampleCount: 8000))
+        #expect(STTService.shouldRunFinalTranscription(partialIsEmpty: true, sampleCount: 16000))
+        // Below the ~0.5s floor → skip.
+        #expect(!STTService.shouldRunFinalTranscription(partialIsEmpty: true, sampleCount: 7999))
+        // Streaming already produced text → skip (no redundant pass).
+        #expect(!STTService.shouldRunFinalTranscription(partialIsEmpty: false, sampleCount: 100_000))
+    }
+
+    @Test("joinTranscriptionText joins segments and trims")
+    func joinsSegments() {
+        #expect(STTService.joinTranscriptionText(["Hello.", "How are you?"]) == "Hello. How are you?")
+        #expect(STTService.joinTranscriptionText(["  spaced  "]) == "spaced")
+        #expect(STTService.joinTranscriptionText([]) == "")
+    }
+
+    @Test("wall-clock cap trips past the limit, not before, and never when unset")
+    func wallClockCap() {
+        let now = Date()
+        #expect(STTService.recordingExceededCap(start: now.addingTimeInterval(-200), now: now, cap: 180))
+        #expect(!STTService.recordingExceededCap(start: now.addingTimeInterval(-10), now: now, cap: 180))
+        #expect(!STTService.recordingExceededCap(start: nil, now: now, cap: 180))
+    }
 }

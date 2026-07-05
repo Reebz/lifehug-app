@@ -39,8 +39,19 @@ final class STTService {
     private var transcriber: AudioStreamTranscriber?
     private var transcriptionTask: Task<Void, Never>?
 
-    /// Maximum recording duration in samples (3 minutes at 16kHz).
-    private let maxRecordingSamples = 16000 * 180
+    /// Maximum recording duration as wall-clock time (3 minutes). Enforced without
+    /// reading the live sample buffer from the MainActor during recording (KTD6).
+    private let maxRecordingSeconds: TimeInterval = 180
+
+    /// When the current recording began; nil when not recording.
+    private var recordingStart: Date?
+
+    /// Minimum captured samples (~0.5s at 16kHz) to attempt a final full-buffer
+    /// transcription when the streaming pass produced nothing.
+    static let finalTranscriptionMinSamples = 8000
+
+    /// Guards the ordered teardown so it runs exactly once per session.
+    private var isTearingDown = false
 
     // MARK: - Model Loading
 
@@ -224,6 +235,8 @@ final class STTService {
             }
         )
         self.transcriber = ast
+        self.recordingStart = Date()
+        self.isTearingDown = false
 
         // startStreamTranscription() suspends for the entire recording —
         // handles mic permission, recording start, and realtime transcription
@@ -237,16 +250,9 @@ final class STTService {
             } catch {
                 print("[STT] ❌ DIAG: startStreamTranscription threw: \(error)")
             }
-            // Recording ended (either stopped or error)
-            print("[STT] DIAG: Cleaning up — partialTranscript='\(self.partialTranscript.prefix(40))'")
-            await MainActor.run {
-                self.isRecording = false
-                self.yieldFinalTranscript()
-                self.continuation?.finish()
-                self.continuation = nil
-                self.transcriber = nil
-                print("[STT] DIAG: Recording session ended, isRecording=false")
-            }
+            // Recording ended (either stopped or error). Run the single ordered
+            // teardown: stop the tap, final-transcribe, purge, then finish the stream.
+            await self.finishRecording()
         }
 
         return stream
@@ -259,17 +265,95 @@ final class STTService {
         guard isRecording || transcriptionTask != nil else { return }
         logger.info("stopListening")
 
-        // Cancel the task (triggers CancellationError at suspension points)
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
-
-        // Stop the transcriber (tears down audio engine properly)
+        // Stop the transcriber: stopStreamTranscription() halts the tap and ends the
+        // realtime loop, so startStreamTranscription() returns and the teardown in the
+        // transcriptionTask runs. Cancellation alone is NOT sufficient — the loop only
+        // checks isRecording between decodes, so we must stop it authoritatively.
+        // The buffer purge is deferred to finishRecording() (after the tap stops) to
+        // fix the purge-before-teardown race (P1-3); no purge here.
         let t = transcriber
+        transcriptionTask?.cancel()
         Task { await t?.stopStreamTranscription() }
+    }
 
-        // Free audio buffer memory before LLM inference (peak memory consumer)
+    /// Single, ordered teardown for a recording session. Runs once (idempotent via
+    /// `isTearingDown`) after the realtime loop has exited: stop the tap so the
+    /// captured buffer is static, run the authoritative final transcription (P1-1),
+    /// purge the buffer (P1-3, after stop), then finish the stream.
+    private func finishRecording() async {
+        guard !isTearingDown else { return }
+        isTearingDown = true
+        print("[STT] DIAG: finishRecording — partialTranscript='\(partialTranscript.prefix(40))'")
+
+        // Ensure the tap is stopped even on the error-return path, so `audioSamples`
+        // stops growing before we read or purge it (idempotent).
+        if let ast = transcriber {
+            await ast.stopStreamTranscription()
+        }
+
+        // Authoritative final transcription: if streaming produced nothing but we
+        // captured a non-trivial buffer, transcribe the whole buffer once.
+        await runFinalTranscriptionIfNeeded()
+
+        // Purge AFTER the tap has stopped and the final pass has read the buffer
+        // (ordering fix; no lock on the render thread — KTD6).
         nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
         processor?.purgeAudioSamples(keepingLast: 0)
+
+        isRecording = false
+        recordingStart = nil
+        yieldFinalTranscript()
+        continuation?.finish()
+        continuation = nil
+        transcriber = nil
+        transcriptionTask = nil
+        print("[STT] DIAG: Recording session ended, isRecording=false")
+    }
+
+    /// If the streaming pass yielded no text but enough audio was captured, run a
+    /// final full-buffer transcription and adopt its text. This is the safety net
+    /// that makes VAD gating non-fatal for short/soft/pause-leading answers (P1-1).
+    private func runFinalTranscriptionIfNeeded() async {
+        let partialEmpty = partialTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        guard let pipe = whisperPipe else { return }
+        nonisolated(unsafe) let readProcessor = pipe.audioProcessor
+        let samples = Array(readProcessor.audioSamples)
+        guard Self.shouldRunFinalTranscription(partialIsEmpty: partialEmpty, sampleCount: samples.count) else {
+            return
+        }
+
+        // WhisperKit is not Sendable; mirror the existing nonisolated(unsafe) crossing.
+        // Bind the [TranscriptionResult] overload explicitly (KTD3) via the annotation.
+        nonisolated(unsafe) let p = pipe
+        let results: [TranscriptionResult]? = try? await p.transcribe(
+            audioArray: samples,
+            decodeOptions: DecodingOptions(language: "en")
+        )
+        guard let results else { return }
+        let text = Self.joinTranscriptionText(results.map(\.text))
+        if !text.isEmpty {
+            partialTranscript = text
+            print("[STT] DIAG: Final full-buffer transcription recovered '\(text.prefix(40))'")
+        }
+    }
+
+    /// Whether a final full-buffer transcription should run: only when streaming
+    /// produced nothing and at least `finalTranscriptionMinSamples` were captured.
+    nonisolated static func shouldRunFinalTranscription(partialIsEmpty: Bool, sampleCount: Int) -> Bool {
+        partialIsEmpty && sampleCount >= finalTranscriptionMinSamples
+    }
+
+    /// Join per-segment transcription texts into one trimmed transcript.
+    nonisolated static func joinTranscriptionText(_ texts: [String]) -> String {
+        texts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether the recording has exceeded the wall-clock cap (no live-buffer read).
+    nonisolated static func recordingExceededCap(start: Date?, now: Date, cap: TimeInterval) -> Bool {
+        guard let start else { return false }
+        return now.timeIntervalSince(start) > cap
     }
 
     // MARK: - State Change Handling
@@ -301,9 +385,9 @@ final class STTService {
             continuation?.yield(transcript)
         }
 
-        // Three-minute recording guard
-        nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
-        if let processor, processor.audioSamples.count > maxRecordingSamples {
+        // Three-minute recording guard — wall-clock based, so we never read the live
+        // `audioSamples` buffer from the MainActor during recording (KTD6 / P1-3).
+        if Self.recordingExceededCap(start: recordingStart, now: Date(), cap: maxRecordingSeconds) {
             logger.warning("Recording exceeded 3-minute cap — auto-stopping")
             stopListening()
         }
