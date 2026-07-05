@@ -22,6 +22,9 @@ final class VoicePipeline {
     private let sttService: STTService
     private let llmService: LLMService
     private let ttsService: TTSService
+    /// The single app-side audio-session owner (U9). Defaults to the app-scoped shared
+    /// instance so it survives the per-voice-mode-entry VoicePipeline (P2-10).
+    private let audioSession: AudioSessionController
 
     private var activeTask: Task<Void, Never>?
     private var sentenceBuffer = SentenceBuffer()
@@ -56,16 +59,21 @@ final class VoicePipeline {
     private var consecutiveEmpty = 0
     private let maxEmptyRetries = 2
 
-    init(sttService: STTService, llmService: LLMService, ttsService: TTSService) {
+    init(
+        sttService: STTService,
+        llmService: LLMService,
+        ttsService: TTSService,
+        audioSession: AudioSessionController = .shared
+    ) {
         self.sttService = sttService
         self.llmService = llmService
         self.ttsService = ttsService
+        self.audioSession = audioSession
     }
 
     // MARK: - Public API
 
     func startListening() {
-        configureAudioSessionOnce()
         transition(to: .listening)
     }
 
@@ -81,15 +89,16 @@ final class VoicePipeline {
 
     func stopAll() {
         ttsService.stop()
-        sttService.stopListening()
         activeTask?.cancel()
         activeTask = nil
         state = .idle
         removeAudioObservers()
-        // Deactivate audio session now that the voice conversation is truly over.
-        // This lets other apps (music, podcasts) resume their audio.
-        audioSessionConfigured = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        // Deactivate the session only AFTER the STT engine has fully torn down, so
+        // deactivation never races a live recording engine (U9 / P2-3). This also lets
+        // other apps (music, podcasts) resume their audio.
+        Task { [audioSession, sttService] in
+            await audioSession.end { await sttService.stopAndWait() }
+        }
     }
 
     /// Start observing audio interruptions and route changes.
@@ -127,6 +136,9 @@ final class VoicePipeline {
         activeTask?.cancel()
         state = newState
         if newState == .listening {
+            // Assert the record phase for every listening entry (start, interrupt,
+            // retry, auto-reopen) through the single audio-session owner (U9).
+            audioSession.beginRecordPhase()
             activeTask = Task { await runListening() }
         }
     }
@@ -149,7 +161,6 @@ final class VoicePipeline {
         lastDetectedPhrase = nil
 
         print("[Pipeline] DIAG: isAuthorized=\(sttService.isAuthorized), isASRReady=\(sttService.isASRReady)")
-        print("[Pipeline] DIAG: audioSessionConfigured=\(audioSessionConfigured)")
         let stream = sttService.startListening()
         var terminatedByPhrase = false
         var yieldCount = 0
@@ -296,6 +307,9 @@ final class VoicePipeline {
 
                 self.logger.info("LLM complete: \(sentences.count) sentences")
 
+                // Ensure the session is active for playback (category unchanged, U9).
+                audioSession.beginPlaybackPhase()
+
                 // Phase 2: Speak sentences in batches of 2-3 for better prosody.
                 // Kokoro TTS needs multi-sentence context for natural intonation.
                 var batch = ""
@@ -363,13 +377,15 @@ final class VoicePipeline {
         switch type {
         case .began:
             logger.info("Audio interruption began (phone call, Siri, etc.)")
-            if state == .listening || state == .speaking {
+            if state == .listening || state == .speaking || state == .processing {
                 wasInterrupted = true
                 sttService.stopListening()
                 ttsService.stop()
                 activeTask?.cancel()
                 activeTask = nil
                 state = .idle
+                // Force the category to be re-asserted when the interruption ends (P2-4).
+                audioSession.invalidate()
             }
 
         case .ended:
@@ -382,8 +398,8 @@ final class VoicePipeline {
             if options.contains(.shouldResume) && wasInterrupted {
                 logger.info("Audio interruption ended — resuming session")
                 wasInterrupted = false
-                // Re-activate audio session after interruption
-                try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+                // Re-assert category + activation through the single owner (U9).
+                audioSession.reactivateAfterInterruption()
                 // Resume listening if we were in a voice conversation loop
                 if autoReopenMic {
                     startListening()
@@ -441,28 +457,6 @@ final class VoicePipeline {
     }
 
     // MARK: - Memory Monitoring
-
-    // MARK: - Audio Session (Unified)
-
-    /// Configure audio session once at conversation start. All components
-    /// (WhisperKit AudioProcessor, KokoroManager TTS, system AVSpeechSynthesizer)
-    /// share this single session. Setting it once avoids AVAudioEngineConfigurationChange
-    /// notifications that can silently kill the recording tap.
-    private var audioSessionConfigured = false
-
-    private func configureAudioSessionOnce() {
-        guard !audioSessionConfigured else { return }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [
-                .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP
-            ])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-            audioSessionConfigured = true
-        } catch {
-            logger.error("Audio session configuration failed: \(error)")
-        }
-    }
 
     func checkMemoryPressure() {
         let pressure = MemoryMonitor.currentPressure

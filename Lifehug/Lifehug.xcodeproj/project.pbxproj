@@ -10,6 +10,7 @@
 		00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */; };
 		0619D2F7EED64733D2FB5AAC /* ModelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2FC2AA88E660C6579714592 /* ModelState.swift */; };
 		1436E589C929D07F208CBE0D /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8E6D09AB13C9D9FC0B410D /* STTService.swift */; };
+		AE11111111111111AAAAAAAA /* AudioSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE22222222222222AAAAAAAA /* AudioSessionController.swift */; };
 		FA1B2C3D4E5F60718192A3B4D /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = FA1B2C3D4E5F60718192A3B4E /* FluidAudio */; };
 		WK1B2C3D4E5F60718192A3B42 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = WK1B2C3D4E5F60718192A3B41 /* WhisperKit */; };
 		AB12345678901234AB111111 /* SentenceBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12345678901234ABABABAB /* SentenceBufferTests.swift */; };
@@ -96,6 +97,7 @@
 		6EED3D32E6D17114B39C3472 /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationEngineTests.swift; sourceTree = "<group>"; };
 		7E8E6D09AB13C9D9FC0B410D /* STTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTService.swift; sourceTree = "<group>"; };
+		AE22222222222222AAAAAAAA /* AudioSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionController.swift; sourceTree = "<group>"; };
 		82A7397DB97FD22971C5D0A5 /* LifehugTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LifehugTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		830D1DFCD414B5CD70AF4AE6 /* SessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionState.swift; sourceTree = "<group>"; };
 		832C05A15AE3D2EE8D85891A /* StorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageService.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				0E6A9F7B4AC81B053CA3ED8D /* RotationEngine.swift */,
 				832C05A15AE3D2EE8D85891A /* StorageService.swift */,
 				7E8E6D09AB13C9D9FC0B410D /* STTService.swift */,
+				AE22222222222222AAAAAAAA /* AudioSessionController.swift */,
 				A1C2D3E4F5061728394A5B6C /* TaskTimeout.swift */,
 				6EED3D32E6D17114B39C3472 /* TTSService.swift */,
 			);
@@ -417,6 +420,7 @@
 				386C56613644FB974AE75D35 /* RotationEngine.swift in Sources */,
 				E5FE6BC7CE0608BFCEA0637E /* RotationState.swift in Sources */,
 				1436E589C929D07F208CBE0D /* STTService.swift in Sources */,
+				AE11111111111111AAAAAAAA /* AudioSessionController.swift in Sources */,
 				00315D86B5F5FEF5F0E18509 /* SessionState.swift in Sources */,
 				C2C3F614DA1FE951F6C8F508 /* SettingsView.swift in Sources */,
 				78A769BE5C53C3D531638291 /* StorageService.swift in Sources */,

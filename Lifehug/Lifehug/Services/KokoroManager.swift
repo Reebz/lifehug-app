@@ -169,7 +169,8 @@ final class KokoroManager {
 
             ttsManager = manager
             populateVoiceNames()
-            configureAudioSession()
+            // Audio session ownership is centralized in AudioSessionController (U9);
+            // loadEngine loads weights only.
             phase = .ready
             statusMessage = nil
             logger.info("FluidAudio Kokoro loaded")
@@ -277,15 +278,8 @@ final class KokoroManager {
     // MARK: - Audio Playback
 
     private func playWAVData(_ data: Data) async throws {
-        // Ensure the audio session is active. A failure here is a real reason to fall
-        // back to the system voice, not something to swallow (was `try?`).
-        do {
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            logger.error("Audio session activation failed before playback: \(error)")
-            throw KokoroError.playbackFailed
-        }
-
+        // Audio session activation is owned by AudioSessionController (U9); the session
+        // is already active for the playback phase, so do not touch it here.
         let player = try AVAudioPlayer(data: data)
         var playbackStarted = true
 
@@ -311,20 +305,6 @@ final class KokoroManager {
 
         if !playbackStarted {
             throw KokoroError.playbackFailed
-        }
-    }
-
-    // MARK: - Audio Session
-
-    private func configureAudioSession() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(
-                .playAndRecord, mode: .default,
-                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
-            )
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            logger.error("Audio session configuration failed: \(error)")
         }
     }
 

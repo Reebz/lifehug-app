@@ -276,6 +276,17 @@ final class STTService {
         Task { await t?.stopStreamTranscription() }
     }
 
+    /// Awaitable teardown: trigger the stop, then await the transcription task (which
+    /// runs the ordered `finishRecording()` teardown) to completion. Lets callers
+    /// sequence `stop → await engine teardown → deactivate session` so deactivation
+    /// never races a live recording engine (U9 / P2-3).
+    func stopAndWait() async {
+        guard isRecording || transcriptionTask != nil else { return }
+        let task = transcriptionTask
+        stopListening()
+        await task?.value
+    }
+
     /// Single, ordered teardown for a recording session. Runs once (idempotent via
     /// `isTearingDown`) after the realtime loop has exited: stop the tap so the
     /// captured buffer is static, run the authoritative final transcription (P1-1),
