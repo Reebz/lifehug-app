@@ -37,6 +37,12 @@ struct LifehugApp: App {
                 .environment(kokoroManager)
                 .task {
                     ttsService.setKokoroManager(kokoroManager)
+                    // Single-owner LLM container: LLMService borrows ModelState's
+                    // container instead of loading its own (U7 / R6).
+                    llmService.configureContainerProvider(
+                        get: { modelState.modelContainer },
+                        load: { await modelState.ensureModelLoaded() }
+                    )
                     kokoroManager.cleanupLegacyFilesIfNeeded()
                     // Load ASR and Kokoro in parallel — neither blocks the other.
                     let shouldLoadKokoro = KokoroManager.isEnabled && kokoroManager.isModelDownloaded
@@ -58,10 +64,10 @@ struct LifehugApp: App {
                         llmService.unloadModel()
                     case .active:
                         Task {
-                            // Reload LLM if it was previously loaded
-                            if !llmService.isLoaded {
-                                try? await llmService.loadModel()
-                            }
+                            // LLM reload is driven in exactly one place — ModelState's
+                            // scene handler above (single-owner: no separate LLMService
+                            // load path, U7). The LLM session rematerializes lazily on
+                            // first use once the shared container is back.
                             // Retry ASR load if it never succeeded (no-op if ready/in flight).
                             if !sttService.isASRReady {
                                 await sttService.loadASRModel()

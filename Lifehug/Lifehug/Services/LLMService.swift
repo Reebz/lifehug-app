@@ -7,20 +7,45 @@ import os
 @Observable
 @MainActor
 final class LLMService {
-    var isLoaded: Bool = false
     var isGenerating: Bool = false
 
+    /// Whether the shared LLM container is available. On the simulator MLX never
+    /// loads, so a mock flag stands in.
+    var isLoaded: Bool {
+        #if targetEnvironment(simulator)
+        return simulatorModelLoaded
+        #else
+        return modelContainer != nil
+        #endif
+    }
+
+    #if targetEnvironment(simulator)
+    private var simulatorModelLoaded = false
+    #endif
+
     private let logger = Logger(subsystem: "com.lifehug.app", category: "LLM")
-    private var modelContainer: ModelContainer?
+
+    /// Single-owner container source (U7 / R6). LLMService does NOT load its own
+    /// container — it borrows the one loaded and owned by `ModelDownloader` (exposed
+    /// via `ModelState`) so only one Llama container is ever resident. Wired by the
+    /// app at launch via `configureContainerProvider`.
+    private var containerProvider: (@MainActor () -> ModelContainer?)?
+    /// Triggers the single downloader-owned load path (used by call sites that call
+    /// `loadModel()` as a safety net). Idempotent on the downloader side.
+    private var loadTrigger: (@MainActor () async -> Void)?
+    private var modelContainer: ModelContainer? {
+        #if targetEnvironment(simulator)
+        return nil
+        #else
+        return containerProvider?()
+        #endif
+    }
     private var chatSession: ChatSession?
 
     /// System prompt captured by `startNewSession`, retained so the session can be
     /// created lazily once the model container finishes loading (cold-launch fix, R4).
     /// `private(set)` keeps the setter internal-only but exposes the getter to tests.
     private(set) var pendingSystemPrompt: String?
-
-    /// Dynamic — reads the currently selected model. Must NOT be `let` (would go stale after model switch).
-    private static var modelID: String { ModelConfig.LLM.modelID }
 
     private let generateParameters = GenerateParameters(
         temperature: 0.7,
@@ -30,44 +55,41 @@ final class LLMService {
 
     // MARK: - Model Loading
 
+    /// Wire the shared container source. The app calls this once at launch so
+    /// LLMService borrows the single `ModelDownloader` container rather than loading
+    /// a second one (single-owner invariant, R6). `get` reads the current container;
+    /// `load` triggers the downloader's (idempotent) load path.
+    func configureContainerProvider(
+        get: @escaping @MainActor () -> ModelContainer?,
+        load: @escaping @MainActor () async -> Void
+    ) {
+        containerProvider = get
+        loadTrigger = load
+    }
+
+    /// Ensure the shared LLM container is loaded. LLMService does not own or build a
+    /// container; it delegates to the single downloader load path so call sites keep
+    /// working without creating a second container.
     func loadModel() async throws {
         #if targetEnvironment(simulator)
-        // MLX requires a real Metal GPU — skip loading on simulator.
-        isLoaded = true
+        // MLX requires a real Metal GPU — use mock responses.
+        simulatorModelLoaded = true
         logger.info("Simulator detected — LLM model loading skipped, using mock responses")
-        return
         #else
-        guard modelContainer == nil else {
-            isLoaded = true
-            return
-        }
-
-        logger.info("Loading LLM model...")
-
-        let configuration = ModelConfiguration(id: Self.modelID)
-        let storage = StorageService()
-        let hubAPI = HubApi(downloadBase: storage.modelsDirectory)
-
-        let container = try await LLMModelFactory.shared.loadContainer(
-            hub: hubAPI,
-            configuration: configuration
-        ) { progress in
-            Task { @MainActor in
-                self.logger.debug("Model load progress: \(progress)")
-            }
-        }
-
-        self.modelContainer = container
-        isLoaded = true
-        logger.info("LLM model loaded successfully")
+        guard modelContainer == nil else { return }
+        await loadTrigger?()
         #endif
     }
 
     func unloadModel() {
-        modelContainer = nil
+        // Release the session (which retains the shared container) so the single
+        // owner (ModelDownloader) can actually free the memory. The container itself
+        // is not owned here, so it is not (and cannot be) niled here.
         chatSession = nil
-        isLoaded = false
-        logger.info("LLM model unloaded")
+        #if targetEnvironment(simulator)
+        simulatorModelLoaded = false
+        #endif
+        logger.info("LLM session released")
     }
 
     // MARK: - Conversation

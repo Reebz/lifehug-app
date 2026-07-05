@@ -79,6 +79,20 @@ final class ModelState {
         syncFromDownloader()
     }
 
+    /// Ensure the model container is loaded via the single downloader-owned path.
+    /// Idempotent (no-op if already loaded or not cached). LLMService.loadModel()
+    /// delegates here so the LLM consumer never builds a second container (U7 / R6).
+    func ensureModelLoaded() async {
+        #if targetEnvironment(simulator)
+        return
+        #else
+        guard !isLoaded, downloader.isModelCached else { return }
+        status = .loading
+        await downloader.loadCachedModel()
+        syncFromDownloader()
+        #endif
+    }
+
     // MARK: - Scene Phase Handling
 
     /// Handle scene phase transitions — unload model on background, reload on active.

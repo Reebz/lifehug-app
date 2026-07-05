@@ -87,4 +87,18 @@ struct LLMServiceTests {
         service.startNewSession(systemPrompt: "second")
         #expect(service.pendingSystemPrompt == "second")
     }
+
+    // MARK: - Single-owner container lifecycle (U7 / R6)
+
+    @Test("loadModel marks loaded on simulator; unloadModel releases it")
+    func simulatorLoadUnload() async {
+        // On the simulator MLX never loads a real container, so isLoaded reflects the
+        // mock flag. The single-owner (no second container) property is device-verified.
+        let service = LLMService()
+        #expect(service.isLoaded == false)
+        try? await service.loadModel()
+        #expect(service.isLoaded == true)
+        service.unloadModel()
+        #expect(service.isLoaded == false)
+    }
 }
