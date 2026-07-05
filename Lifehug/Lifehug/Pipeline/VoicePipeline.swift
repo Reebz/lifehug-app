@@ -277,14 +277,18 @@ final class VoicePipeline {
         activeTask?.cancel()
         activeTask = Task {
             do {
-                // IMPORTANT: LLM (MLX) and Kokoro TTS (MLX) both use Metal GPU.
-                // Running them concurrently on separate threads crashes the GPU driver.
-                // Solution: collect ALL LLM output first, THEN synthesize/speak sentences.
-                // This serializes Metal GPU access at the cost of slightly delayed first speech.
+                // Stack reality: the LLM is MLX (Metal GPU); Kokoro TTS is FluidAudio
+                // CoreML (ANE/GPU), not MLX — so the original MLX-vs-MLX GPU-driver
+                // crash cannot recur. TTS is still started only AFTER the full LLM
+                // response is collected, kept conservatively because the MLX LLM
+                // contends for memory (the model has ballooned 300MB->2.3GB under load;
+                // see docs/solutions). Starting TTS after the first sentence (P2-9) is
+                // an on-device-measurement-gated optimization (U14) and does NOT land
+                // until iPhone 17 data shows no crash/glitch/memory spike.
                 var fullResponse = ""
                 var sentences: [String] = []
 
-                // Phase 1: Generate complete LLM response (Metal GPU for LLM only)
+                // Phase 1: Generate the complete LLM response (MLX Metal GPU).
                 let stream = llmService.streamResponse(to: text)
                 for try await chunk in stream {
                     guard !Task.isCancelled else { return }
