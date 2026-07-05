@@ -45,6 +45,7 @@
 		BB11111111111111BBBBBBBB /* OnboardingTemplatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB22222222222222BBBBBBBB /* OnboardingTemplatesTests.swift */; };
 		CC11111111111111CCCCCCCC /* TaskTimeoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22222222222222CCCCCCCC /* TaskTimeoutTests.swift */; };
 		DD11111111111111DDDDDDDD /* LLMServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD22222222222222DDDDDDDD /* LLMServiceTests.swift */; };
+		AC11111111111111AAAAAAAA /* STTServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC22222222222222AAAAAAAA /* STTServiceTests.swift */; };
 		EE11111111111111EEEEEEEE /* CategoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE22222222222222EEEEEEEE /* CategoryTests.swift */; };
 		FF11111111111111FFFFFFFF /* QuestionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF22222222222222FFFFFFFF /* QuestionTests.swift */; };
 		AA33333333333333AAAAAAAA /* RotationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA44444444444444AAAAAAAA /* RotationStateTests.swift */; };
@@ -108,6 +109,7 @@
 		AB12345678901234ABABABAB /* SentenceBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentenceBufferTests.swift; sourceTree = "<group>"; };
 		CD12345678901234CDCDCDCD /* VoicePipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePipelineTests.swift; sourceTree = "<group>"; };
 		DD22222222222222DDDDDDDD /* LLMServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMServiceTests.swift; sourceTree = "<group>"; };
+		AC22222222222222AAAAAAAA /* STTServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTServiceTests.swift; sourceTree = "<group>"; };
 		EE22222222222222EEEEEEEE /* CategoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryTests.swift; sourceTree = "<group>"; };
 		FF22222222222222FFFFFFFF /* QuestionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionTests.swift; sourceTree = "<group>"; };
 		AA44444444444444AAAAAAAA /* RotationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationStateTests.swift; sourceTree = "<group>"; };
@@ -226,6 +228,7 @@
 				BE0CA3C99288FFD05D1FE31B /* AnswerTests.swift */,
 				EE22222222222222EEEEEEEE /* CategoryTests.swift */,
 				DD22222222222222DDDDDDDD /* LLMServiceTests.swift */,
+				AC22222222222222AAAAAAAA /* STTServiceTests.swift */,
 				BB22222222222222BBBBBBBB /* OnboardingTemplatesTests.swift */,
 				D493FF79F375789BDDEEE97F /* QuestionBankParserTests.swift */,
 				FF22222222222222FFFFFFFF /* QuestionTests.swift */,
@@ -428,6 +431,7 @@
 				8E03E4B4A4D03CE571AF737C /* AnswerTests.swift in Sources */,
 				EE11111111111111EEEEEEEE /* CategoryTests.swift in Sources */,
 				DD11111111111111DDDDDDDD /* LLMServiceTests.swift in Sources */,
+				AC11111111111111AAAAAAAA /* STTServiceTests.swift in Sources */,
 				BB11111111111111BBBBBBBB /* OnboardingTemplatesTests.swift in Sources */,
 				431504EABD1CC957BD07EC54 /* QuestionBankParserTests.swift in Sources */,
 				FF11111111111111FFFFFFFF /* QuestionTests.swift in Sources */,

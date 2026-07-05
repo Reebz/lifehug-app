@@ -62,6 +62,10 @@ struct LifehugApp: App {
                             if !llmService.isLoaded {
                                 try? await llmService.loadModel()
                             }
+                            // Retry ASR load if it never succeeded (no-op if ready/in flight).
+                            if !sttService.isASRReady {
+                                await sttService.loadASRModel()
+                            }
                             if KokoroManager.isEnabled && kokoroManager.isModelDownloaded {
                                 ttsService.forceDegradedToSystem = false
                                 if !kokoroManager.isReady {

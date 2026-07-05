@@ -335,7 +335,18 @@ struct DailyQuestionView: View {
 
     private var micStateLabel: String {
         guard voiceSessionActive, let pipeline else {
-            return "Tap to start"
+            // Not in a session — reflect ASR readiness so the mic reads honestly.
+            switch sttService.asrState {
+            case .downloading:
+                let pct = Int((sttService.downloadProgress * 100).rounded())
+                return "Preparing voice… \(pct)%"
+            case .loading:
+                return "Preparing voice…"
+            case .failed(let message):
+                return message
+            case .idle, .ready:
+                return "Tap to start"
+            }
         }
         switch pipeline.state {
         case .listening: return "Recording..."
@@ -396,8 +407,16 @@ struct DailyQuestionView: View {
             triggerHaptic()
             handleSingleTap()
         }
-        .disabled(session.currentQuestion == nil)
+        // Disabled with no question, or while ASR is actively downloading/loading.
+        // A failed load stays tappable so the tap can retry (see handleSingleTap).
+        .disabled(session.currentQuestion == nil || micDisabledForASRPrep)
         .accessibilityLabel(micStateLabel)
+    }
+
+    /// True while ASR is actively preparing and no voice session is under way.
+    private var micDisabledForASRPrep: Bool {
+        guard !voiceSessionActive else { return false }
+        return sttService.asrState == .downloading || sttService.asrState == .loading
     }
 
     // MARK: - Transcript Area
@@ -697,7 +716,13 @@ struct DailyQuestionView: View {
 
     private func handleSingleTap() {
         if !voiceSessionActive {
-            startVoiceSession()
+            // Only enter a voice session once ASR is ready; otherwise a tap retries
+            // (or kicks off) the model load. loadASRModel() no-ops while in flight.
+            if sttService.isASRReady {
+                startVoiceSession()
+            } else {
+                Task { await sttService.loadASRModel() }
+            }
         } else if let pipeline {
             switch pipeline.state {
             case .listening:

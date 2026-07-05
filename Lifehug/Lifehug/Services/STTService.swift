@@ -14,12 +14,26 @@ final class STTService {
     var isRecording: Bool = false
     var partialTranscript: String = ""
     var error: String?
-    var isASRReady: Bool { whisperPipe != nil }
+
+    /// Explicit, observable ASR-readiness state (replaces the fire-once boolean).
+    /// Mic controls stay disabled until `.ready`; `.failed` is retriable.
+    private(set) var asrState: ASRState = .idle
+
+    /// First-run model download progress (0...1), driven by `WhisperKit.download`.
+    private(set) var downloadProgress: Double = 0
+
+    /// Voice recognition is usable only when the model is fully loaded.
+    var isASRReady: Bool { asrState == .ready }
 
     private let logger = Logger(subsystem: "com.lifehug.app", category: "STT")
 
     /// WhisperKit pipeline — created once at launch, persists across sessions.
     private var whisperPipe: WhisperKit?
+
+    /// Test seam. When set (simulator/tests only), replaces the real download+load
+    /// so the readiness state machine can be exercised without a CoreML model.
+    /// Throwing from the closure drives the `.failed` branch; returning drives `.ready`.
+    var loadOverrideForTesting: (@MainActor () async throws -> Void)?
 
     private var continuation: AsyncStream<String>.Continuation?
     private var transcriber: AudioStreamTranscriber?
@@ -30,23 +44,68 @@ final class STTService {
 
     // MARK: - Model Loading
 
+    /// Download (with progress) and load the WhisperKit model, driving `asrState`.
+    /// Idempotent for the terminal/ready and in-flight states; retriable from
+    /// `.idle`/`.failed` (call again on the next voice-mode entry or `.active`).
     func loadASRModel() async {
-        guard whisperPipe == nil else { return }
+        switch asrState {
+        case .ready, .downloading, .loading:
+            return  // already usable or a load is already in flight
+        case .idle, .failed:
+            break   // resting or previously failed — (re)attempt
+        }
+
         do {
-            logger.info("Loading WhisperKit small.en model...")
-            let pipe = try await WhisperKit(WhisperKitConfig(
-                model: "small.en",
-                verbose: false,
-                prewarm: true,
-                load: true,
-                download: true
-            ))
-            self.whisperPipe = pipe
-            print("[STT] DIAG: WhisperKit loaded — tokenizer=\(pipe.tokenizer != nil), audioProcessor=\(type(of: pipe.audioProcessor))")
+            try await performASRLoad()
+            asrState = .ready
+            logger.info("WhisperKit small.en ready")
+        } catch is CancellationError {
+            asrState = .idle
         } catch {
             logger.error("WhisperKit load failed: \(error)")
-            self.error = "Voice recognition failed to load. Please restart."
+            asrState = .failed("Voice recognition failed to load. Tap to retry.")
         }
+    }
+
+    /// Performs the actual download + load. Split into two observable phases per
+    /// KTD3: `WhisperKit.download` (with progress) then `WhisperKit(config)` load.
+    private func performASRLoad() async throws {
+        #if targetEnvironment(simulator)
+        // No CoreML on the simulator. Honor an injected test loader if present so
+        // the state machine is unit-testable; otherwise treat as ready immediately.
+        asrState = .loading
+        if let override = loadOverrideForTesting {
+            try await override()
+        }
+        #else
+        // 1. Download (surfaces progress, distinct from the compile/load phase).
+        asrState = .downloading
+        downloadProgress = 0
+        let modelFolder = try await WhisperKit.download(
+            variant: "small.en",
+            from: "argmaxinc/whisperkit-coreml",
+            progressCallback: { [weak self] progress in
+                let fraction = progress.fractionCompleted
+                Task { @MainActor [weak self] in
+                    self?.downloadProgress = fraction
+                }
+            }
+        )
+
+        // 2. Load + prewarm from the downloaded folder (no re-download). The init
+        //    returning without throwing IS the authoritative "ready" signal.
+        asrState = .loading
+        let pipe = try await WhisperKit(WhisperKitConfig(
+            model: "small.en",
+            modelFolder: modelFolder.path,
+            verbose: false,
+            prewarm: true,
+            load: true,
+            download: false
+        ))
+        self.whisperPipe = pipe
+        print("[STT] DIAG: WhisperKit loaded — tokenizer=\(pipe.tokenizer != nil), audioProcessor=\(type(of: pipe.audioProcessor))")
+        #endif
     }
 
     // MARK: - Authorization
@@ -80,6 +139,14 @@ final class STTService {
     // MARK: - Start Listening
 
     func startListening() -> AsyncStream<String> {
+        // Readiness gate (device + simulator): never start a recording before ASR is
+        // ready. Surface a distinct message so an unready mic is not mistaken for an
+        // empty transcript. Views also `.disabled` the mic until `.ready`.
+        guard asrState == .ready else {
+            self.error = "Preparing voice recognition…"
+            logger.warning("startListening called while ASR not ready (state: \(String(describing: self.asrState)))")
+            return AsyncStream<String> { $0.finish() }
+        }
         #if targetEnvironment(simulator)
         return AsyncStream<String> { continuation in
             Task { @MainActor in
@@ -251,6 +318,18 @@ final class STTService {
             continuation?.yield(partialTranscript)
         }
     }
+}
+
+// MARK: - ASR Readiness State
+
+/// Observable readiness of the on-device speech recognizer (U2 state machine).
+/// `.failed` carries a user-facing, retriable message.
+enum ASRState: Equatable {
+    case idle
+    case downloading
+    case loading
+    case ready
+    case failed(String)
 }
 
 // MARK: - Errors

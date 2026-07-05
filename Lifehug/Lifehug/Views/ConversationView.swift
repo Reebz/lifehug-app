@@ -70,6 +70,8 @@ struct ConversationView: View {
                     }
                 }
                 .accessibilityLabel(voiceMode ? "Disable voice mode" : "Enable voice mode")
+                // Cannot enter voice mode until speech recognition is ready.
+                .disabled(!voiceMode && sttService.asrState != .ready)
             }
         }
         .task {
@@ -248,6 +250,26 @@ struct ConversationView: View {
         .background(Theme.cream)
     }
 
+    /// True while the ASR model is actively downloading or loading (mic disabled).
+    private var asrIsPreparing: Bool {
+        sttService.asrState == .downloading || sttService.asrState == .loading
+    }
+
+    /// Status text shown in the voice bar while ASR is not yet ready.
+    private var asrPreparingLabel: String {
+        switch sttService.asrState {
+        case .downloading:
+            let pct = Int((sttService.downloadProgress * 100).rounded())
+            return "Preparing voice… \(pct)%"
+        case .loading:
+            return "Preparing voice…"
+        case .failed(let message):
+            return message
+        default:
+            return "Preparing voice…"
+        }
+    }
+
     private var voiceInputBar: some View {
         VStack(spacing: 8) {
             if let pipeline, !pipeline.partialTranscript.isEmpty {
@@ -285,6 +307,10 @@ struct ConversationView: View {
                             .font(.caption)
                             .foregroundStyle(Theme.walnut)
                     }
+                } else if sttService.asrState != .ready {
+                    Text(asrPreparingLabel)
+                        .font(.caption)
+                        .foregroundStyle(Theme.walnut)
                 } else {
                     Text("Tap mic to start")
                         .font(.caption)
@@ -298,8 +324,11 @@ struct ConversationView: View {
                         pipeline?.stopAll()
                     } else if pipeline?.state == .speaking {
                         pipeline?.interrupt()
-                    } else {
+                    } else if sttService.asrState == .ready {
                         pipeline?.startListening()
+                    } else {
+                        // Not ready (idle/failed) — tapping retries the model load.
+                        Task { await sttService.loadASRModel() }
                     }
                 } label: {
                     ZStack {
@@ -313,6 +342,10 @@ struct ConversationView: View {
                     }
                 }
                 .accessibilityLabel(pipeline?.state == .listening ? "Stop listening" : "Start listening")
+                // Disabled only while the model is actively downloading/loading; a
+                // failed load stays tappable so the user can retry. The stop control
+                // stays live while listening (recording is already under way).
+                .disabled(asrIsPreparing && pipeline?.state != .listening)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -381,6 +414,12 @@ struct ConversationView: View {
     private func toggleVoiceMode() {
         if !voiceMode {
             voiceMode = true
+
+            // Retry ASR load on voice-mode entry if a prior attempt failed or never
+            // ran. loadASRModel() no-ops while a load is already in flight or ready.
+            if !sttService.isASRReady {
+                Task { await sttService.loadASRModel() }
+            }
 
             // Create pipeline and start mic IMMEDIATELY (Issue 16)
             let p = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
