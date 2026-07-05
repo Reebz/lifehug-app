@@ -92,7 +92,6 @@
 		49878F792F0E942BA213E13E /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		4B265E197F7FA3E423981751 /* Question.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Question.swift; sourceTree = "<group>"; };
 		5A4D2C1323F715B58D861BBF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		6DA9CEAEA5A5FA53FD8A447A /* kokoro-ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "kokoro-ios"; path = "LocalPackages/kokoro-ios"; sourceTree = SOURCE_ROOT; };
 		A1C2D3E4F5061728394A5B6C /* TaskTimeout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskTimeout.swift; sourceTree = "<group>"; };
 		6EED3D32E6D17114B39C3472 /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		767C56FFCE6F4F4E1BDF3A57 /* RotationEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationEngineTests.swift; sourceTree = "<group>"; };
@@ -131,7 +130,6 @@
 		DE30891D1823713F4F65B0D8 /* AnswersBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswersBrowserView.swift; sourceTree = "<group>"; };
 		D5E6F7081920A1B2C3D4E5F6 /* voices.npz */ = {isa = PBXFileReference; lastKnownFileType = file; path = "voices.npz"; sourceTree = "<group>"; };
 		E1483A254576AD113904B103 /* question-bank.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "question-bank.md"; sourceTree = "<group>"; };
-		E4992E371C506722A42A9E60 /* MisakiSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MisakiSwift; path = LocalPackages/MisakiSwift; sourceTree = SOURCE_ROOT; };
 		EA76F2847FB1B7DB0FC760F1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EAABB9577BF1FF3D9BE51A49 /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
 		EBF5639DAEEE2A7B0A8CF963 /* RotationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationState.swift; sourceTree = "<group>"; };
