@@ -226,8 +226,11 @@ final class VoicePipeline {
                     // conversation. Briefly pause, then reopen the mic.
                     Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(400))
-                        // Never re-arm the mic in the background (P2).
-                        guard let self, self.autoReopenMic, Self.appIsActive else { return }
+                        guard let self, self.autoReopenMic else { return }
+                        // Never re-arm the mic when not foreground-active (P2). Settle to
+                        // idle rather than leaving the UI stuck on "Listening…" with a dead
+                        // mic — the next tap then starts a fresh listen.
+                        guard Self.appIsActive else { self.state = .idle; return }
                         self.startListening()
                     }
                 } else {
@@ -355,7 +358,10 @@ final class VoicePipeline {
                 // where re-arming would keep the recorder hot (P2).
                 if self.autoReopenMic {
                     try? await Task.sleep(for: .milliseconds(100))
-                    guard !Task.isCancelled, self.autoReopenMic, Self.appIsActive else { return }
+                    guard !Task.isCancelled, self.autoReopenMic else { return }
+                    // Not foreground-active: don't re-arm, and settle to idle so the UI
+                    // doesn't hang on "Speaking…" with nothing playing (P2).
+                    guard Self.appIsActive else { self.state = .idle; return }
                     self.startListening()
                 }
 
@@ -419,8 +425,10 @@ final class VoicePipeline {
                 wasInterrupted = false
                 // Re-assert category + activation through the single owner (U9).
                 audioSession.reactivateAfterInterruption()
-                // Resume listening if we were in a voice conversation loop
-                if autoReopenMic {
+                // Resume listening if we were in a voice conversation loop — but never
+                // while backgrounded/inactive (this is a third auto-reopen path and must
+                // honor the same foreground gate as the post-TTS and empty-retry sites, P2).
+                if autoReopenMic && Self.appIsActive {
                     startListening()
                 }
             } else {
