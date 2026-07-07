@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 import os
 
 enum PipelineState: Equatable {
@@ -222,7 +223,8 @@ final class VoicePipeline {
                     // conversation. Briefly pause, then reopen the mic.
                     Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(400))
-                        guard let self, self.autoReopenMic else { return }
+                        // Never re-arm the mic in the background (P2).
+                        guard let self, self.autoReopenMic, Self.appIsActive else { return }
                         self.startListening()
                     }
                 } else {
@@ -252,6 +254,13 @@ final class VoicePipeline {
     /// surface an error: only in hands-free mode and within the retry budget.
     nonisolated static func shouldRetryEmpty(autoReopenMic: Bool, consecutiveEmpty: Int, maxRetries: Int) -> Bool {
         autoReopenMic && consecutiveEmpty <= maxRetries
+    }
+
+    /// Whether the app is foreground-active. Auto-reopening the mic while backgrounded
+    /// would re-arm the recorder in the background (UIBackgroundModes=[audio] keeps it
+    /// hot) — a privacy/battery bug (P2). Every auto-reopen path must gate on this.
+    private static var appIsActive: Bool {
+        UIApplication.shared.applicationState == .active
     }
 
     /// Removes any trailing termination phrase from the transcript.
@@ -339,10 +348,11 @@ final class VoicePipeline {
                 guard !Task.isCancelled else { return }
                 onResponseGenerated?(fullResponse)
 
-                // Auto-reopen mic for conversation loop
+                // Auto-reopen mic for conversation loop — but never in the background,
+                // where re-arming would keep the recorder hot (P2).
                 if self.autoReopenMic {
                     try? await Task.sleep(for: .milliseconds(100))
-                    guard !Task.isCancelled, self.autoReopenMic else { return }
+                    guard !Task.isCancelled, self.autoReopenMic, Self.appIsActive else { return }
                     self.startListening()
                 }
 
