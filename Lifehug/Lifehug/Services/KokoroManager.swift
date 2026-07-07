@@ -58,11 +58,24 @@ final class KokoroManager {
     var isModelDownloaded: Bool { ttsManager?.isAvailable == true || modelsExistOnDisk }
     var availableVoices: [String] { cachedVoiceNames }
 
-    /// Check if FluidAudio has cached models on disk.
+    /// Check if FluidAudio has REAL cached models on disk — not just the stub directory.
     private var modelsExistOnDisk: Bool {
         guard let cacheDir = try? TtsModels.cacheDirectoryURL() else { return false }
         let modelsDir = cacheDir.appendingPathComponent(TtsConstants.defaultModelsSubdirectory)
-        return FileManager.default.fileExists(atPath: modelsDir.path)
+        let fm = FileManager.default
+        // FluidAudio creates the `Models` directory BEFORE fetching any file, and the
+        // payload lives in the purgeable Caches dir — so a bare, partial, or iOS-evicted
+        // directory is a false positive. That false positive routed the Settings/startup
+        // flow into a silent, unbounded re-download that never left `.loading`. Require an
+        // actual compiled CoreML payload (`coremldata.bin` inside an `.mlmodelc` bundle)
+        // before treating the model as downloaded.
+        guard let enumerator = fm.enumerator(at: modelsDir, includingPropertiesForKeys: nil) else {
+            return false
+        }
+        for case let url as URL in enumerator where url.lastPathComponent == "coremldata.bin" {
+            return true
+        }
+        return false
     }
 
     // MARK: - Static Properties (UserDefaults-backed)
@@ -121,10 +134,14 @@ final class KokoroManager {
                 phase = .loading
                 statusMessage = "Loading voice engine..."
                 let manager = KokoroTtsManager(defaultVoice: Self.selectedVoice)
-                try await manager.initialize(
-                    models: models,
-                    preloadVoices: [Self.selectedVoice]
-                )
+                nonisolated(unsafe) let unsafeManager = manager
+                nonisolated(unsafe) let unsafeModels = models
+                let voice = Self.selectedVoice
+                // Bound the load + voice-embedding fetch so a stalled socket fails instead
+                // of hanging `.loading` forever (see loadEngine for the same rationale).
+                try await withTimeout(seconds: 180) {
+                    try await unsafeManager.initialize(models: unsafeModels, preloadVoices: [voice])
+                }
 
                 ttsManager = manager
                 populateVoiceNames()
@@ -174,8 +191,14 @@ final class KokoroManager {
 
         do {
             let manager = KokoroTtsManager(defaultVoice: Self.selectedVoice)
-            // initialize() auto-downloads if models not cached
-            try await manager.initialize(preloadVoices: [Self.selectedVoice])
+            nonisolated(unsafe) let unsafeManager = manager
+            let voice = Self.selectedVoice
+            // initialize() auto-downloads if models are missing/purged, over a URLSession
+            // whose resource timeout is ~7 days — a stalled socket would otherwise pin
+            // `.loading` forever. Bound it so a stall resolves to `.failed` (retriable).
+            try await withTimeout(seconds: 180) {
+                try await unsafeManager.initialize(preloadVoices: [voice])
+            }
 
             ttsManager = manager
             populateVoiceNames()
