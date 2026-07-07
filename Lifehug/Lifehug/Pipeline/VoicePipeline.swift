@@ -92,6 +92,9 @@ final class VoicePipeline {
         ttsService.stop()
         activeTask?.cancel()
         activeTask = nil
+        // Explicit teardown must never leave auto-reopen armed — otherwise the untracked
+        // empty-retry/post-TTS reopen tasks can re-arm the mic after we've stopped (P2).
+        autoReopenMic = false
         state = .idle
         removeAudioObservers()
         // Deactivate the session only AFTER the STT engine has fully torn down, so

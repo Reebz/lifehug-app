@@ -48,6 +48,7 @@ struct ConversationView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
+                    pipeline?.unwireAutoReopen()
                     pipeline?.stopAll()
                     dismiss()
                 } label: {
@@ -103,6 +104,7 @@ struct ConversationView: View {
         }
         .onDisappear {
             voiceModeTask?.cancel()
+            pipeline?.unwireAutoReopen()
             pipeline?.stopAll()
         }
     }
@@ -478,6 +480,7 @@ struct ConversationView: View {
             voiceModeTask?.cancel()
             voiceModeTask = nil
             voiceMode = false
+            pipeline?.unwireAutoReopen()
             pipeline?.stopAll()
             pipeline = nil
         }
