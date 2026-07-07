@@ -59,6 +59,20 @@ final class TTSService {
 
     private func speakViaSystem(_ sentence: String) async {
         speakGeneration += 1
+
+        #if targetEnvironment(simulator)
+        // Apple's AVSpeechSynthesizer over-releases a Swift object on teardown on the
+        // iOS 26 simulator (SIGABRT: "pointer being freed was not allocated", zero app
+        // frames — not an app-code bug). STT and LLM already run mocked on the sim; mock
+        // system TTS the same way rather than ever driving the real synthesizer. Simulate
+        // speech duration so the pipeline's .speaking timing (and auto-reopen) stays
+        // realistic; the sleep is cancelled when the enclosing task is (stop/interrupt).
+        let wordCount = max(1, sentence.split(whereSeparator: { $0.isWhitespace }).count)
+        // ~0.33s/word approximates the 0.53 utterance rate; clamp so it never stalls.
+        let seconds = min(Double(wordCount) * 0.33, 6.0)
+        try? await Task.sleep(for: .seconds(seconds))
+        return
+        #else
         let generation = speakGeneration
 
         let utterance = AVSpeechUtterance(string: sentence)
@@ -110,6 +124,7 @@ final class TTSService {
                 }
             }
         }
+        #endif
     }
 
     func stop() {
