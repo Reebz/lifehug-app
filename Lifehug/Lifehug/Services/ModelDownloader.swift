@@ -40,6 +40,10 @@ final class ModelDownloader {
     /// The loaded model container, available after successful download + verification.
     private(set) var modelContainer: ModelContainer?
     private var downloadTask: Task<Void, Never>?
+    /// In-flight cached-load, so concurrent callers (voice-entry background load, the
+    /// pipeline's wait-for-ready gate, and the scene `.active` reload) coalesce onto a
+    /// single load instead of each building a second container.
+    private var loadTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -109,18 +113,33 @@ final class ModelDownloader {
 
     /// Attempt to load an already-downloaded model (e.g. on subsequent launches).
     func loadCachedModel() async {
-        guard modelContainer == nil else { return }
-        phase = .verifying
-        do {
-            let container = try await loadModel()
-            modelContainer = container
-            phase = .ready
-        } catch {
-            logger.warning("Cached model failed to load: \(error.localizedDescription)")
-            // Model is likely corrupted — clear and require re-download
-            clearModelFiles()
-            phase = .idle
+        // Coalesce concurrent loads onto one task (check-and-set is atomic on the
+        // MainActor — no await between the guard and the assignment).
+        if let loadTask {
+            await loadTask.value
+            return
         }
+        guard modelContainer == nil else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            self.phase = .verifying
+            do {
+                let container = try await self.loadModel()
+                self.modelContainer = container
+                self.phase = .ready
+            } catch {
+                self.logger.warning("Cached model failed to load: \(error.localizedDescription)")
+                // Do NOT delete the model on a load failure. A transient Metal/memory error
+                // or a background-during-load is recoverable, but deleting forced a
+                // multi-hundred-MB re-download AND a permanent voice-mode dead-end (the load
+                // paths can load but never download). Keep the files; a later trigger retries.
+                // Genuinely-corrupt models are still removable via deleteCache() in Settings.
+                self.phase = .idle
+            }
+        }
+        loadTask = task
+        await task.value
+        loadTask = nil
     }
 
     /// Delete cached model files and reset to idle state.

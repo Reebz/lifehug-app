@@ -303,6 +303,16 @@ final class VoicePipeline {
                 var fullResponse = ""
                 var sentences: [String] = []
 
+                // The first utterance otherwise races the background model load and
+                // streamResponse throws LLMError.noActiveSession (nil container), which the
+                // catch below used to relabel as a generic "Something went wrong". Wait for
+                // the single-owner container (idempotent + coalesced) before generating; if
+                // it genuinely cannot load, throw an honest modelNotLoaded (surfaced below).
+                if !llmService.isLoaded {
+                    try await llmService.loadModel()
+                }
+                guard llmService.isLoaded else { throw LLMError.modelNotLoaded }
+
                 // Phase 1: Generate the complete LLM response (MLX Metal GPU).
                 let stream = llmService.streamResponse(to: text)
                 for try await chunk in stream {
@@ -367,8 +377,16 @@ final class VoicePipeline {
 
             } catch {
                 guard !Task.isCancelled else { return }
-                self.logger.error("Pipeline processing error: \(error)")
-                self.error = "Something went wrong. Let me try again."
+                self.logger.error("Pipeline processing error: \(error.localizedDescription)")
+                print("[Pipeline] ❌ DIAG: processUserInput threw: \(error)")
+                // Surface the real cause instead of a blanket message — a not-loaded model
+                // ("The AI model is not loaded") is a very different signal from an actual
+                // generation crash, both for the user and for field diagnosis.
+                if let llmError = error as? LLMError {
+                    self.error = llmError.errorDescription ?? "Something went wrong. Let me try again."
+                } else {
+                    self.error = "Something went wrong. Let me try again."
+                }
                 self.state = .idle
             }
         }

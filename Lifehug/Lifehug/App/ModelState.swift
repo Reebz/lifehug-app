@@ -50,8 +50,9 @@ final class ModelState {
             if downloader.phase == .ready {
                 return
             }
-            // If loading failed, downloader cleared the files and reset to .idle,
-            // which syncFromDownloader mapped to .notDownloaded — user must re-download.
+            // If loading failed, the files are KEPT (no auto-delete) and phase reset to
+            // .idle → syncFromDownloader shows .notDownloaded; tapping Download re-verifies
+            // and resumes the existing files rather than forcing a full re-download.
         }
         // Not yet downloaded; stay at .notDownloaded and let user tap Download.
         syncFromDownloader()
