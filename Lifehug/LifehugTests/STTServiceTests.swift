@@ -129,6 +129,20 @@ struct STTServiceTests {
         #expect(STTService.joinTranscriptionText([]) == "")
     }
 
+    @Test("sanitizeTranscript strips WhisperKit tokens and non-speech annotations")
+    func sanitizesTranscript() {
+        // The exact leak observed in a saved answer on device.
+        let raw = "<|startoftranscript|><|0.00|> (typing)<|2.00|> <|startoftranscript|><|0.00|> Um, good question.<|3.00|>"
+        #expect(STTService.sanitizeTranscript(raw) == "Um, good question.")
+        // Timestamp tokens alone.
+        #expect(STTService.sanitizeTranscript("Hello<|12.04|> world.") == "Hello world.")
+        // Bracketed annotation.
+        #expect(STTService.sanitizeTranscript("[music] All good.") == "All good.")
+        // Clean text is unchanged.
+        #expect(STTService.sanitizeTranscript("Nothing to strip here.") == "Nothing to strip here.")
+        #expect(STTService.sanitizeTranscript("") == "")
+    }
+
     @Test("wall-clock cap trips past the limit, not before, and never when unset")
     func wallClockCap() {
         let now = Date()

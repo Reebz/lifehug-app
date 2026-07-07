@@ -223,7 +223,11 @@ final class STTService {
             textDecoder: decoder,
             tokenizer: tok,
             audioProcessor: processor,
-            decodingOptions: DecodingOptions(language: "en"),
+            // skipSpecialTokens strips <|startoftranscript|> and the <|x.xx|> timestamp
+            // tokens from the decoded text (WhisperKit defaults it to false, which leaked
+            // raw tokens into saved answers). Timestamp EMISSION stays on so the VAD
+            // segment-confirmation logic still works; only the text output is cleaned.
+            decodingOptions: DecodingOptions(language: "en", skipSpecialTokens: true),
             requiredSegmentsForConfirmation: 2,
             silenceThreshold: 0.3,
             useVAD: true,
@@ -362,10 +366,10 @@ final class STTService {
         nonisolated(unsafe) let p = pipe
         let results: [TranscriptionResult]? = try? await p.transcribe(
             audioArray: samples,
-            decodeOptions: DecodingOptions(language: "en")
+            decodeOptions: DecodingOptions(language: "en", skipSpecialTokens: true, withoutTimestamps: true)
         )
         guard let results else { return }
-        let text = Self.joinTranscriptionText(results.map(\.text))
+        let text = Self.sanitizeTranscript(Self.joinTranscriptionText(results.map(\.text)))
         if !text.isEmpty {
             partialTranscript = text
             print("[STT] DIAG: Final full-buffer transcription recovered '\(text.prefix(40))'")
@@ -381,6 +385,19 @@ final class STTService {
     /// Join per-segment transcription texts into one trimmed transcript.
     nonisolated static func joinTranscriptionText(_ texts: [String]) -> String {
         texts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Strip any residual WhisperKit special/timestamp tokens (`<|...|>`) and non-speech
+    /// annotations (`(typing)`, `[music]`, …) the decoder emits as ordinary words, then
+    /// collapse whitespace. `skipSpecialTokens` handles the `<|...|>` tokens at the source;
+    /// this is the belt-and-suspenders pass that also removes the parenthesized/bracketed
+    /// annotations, which are real word tokens and survive `skipSpecialTokens`.
+    nonisolated static func sanitizeTranscript(_ raw: String) -> String {
+        var s = raw
+        s = s.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"[\(\[][^\)\]]*[\)\]]"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Whether the recording has exceeded the wall-clock cap (no live-buffer read).
@@ -410,8 +427,10 @@ final class STTService {
         if !unconfirmed.isEmpty { parts.append(unconfirmed) }
         if !current.isEmpty { parts.append(current) }
 
-        let transcript = parts.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Sanitize here (the single chokepoint) so BOTH the live partial shown while
+        // listening and the final saved transcript are clean — sanitizing only at
+        // finalization would still flash tokens/annotations on screen mid-recording.
+        let transcript = Self.sanitizeTranscript(parts.joined(separator: " "))
 
         if !transcript.isEmpty {
             partialTranscript = transcript
