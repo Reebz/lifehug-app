@@ -535,6 +535,16 @@ struct ConversationView: View {
         guard let question = session.currentQuestion else { return }
         isSaving = true
 
+        // Explicit teardown: disarm auto-reopen and stop the pipeline BEFORE the async
+        // save + 1.5s confirmation + dismiss window. Otherwise an in-flight post-TTS
+        // reopen (or a live listen) can re-arm the mic under the "Answer Saved" overlay
+        // and even push a stray turn into a session that's about to reset (P2/P3).
+        // Matches DailyQuestionView.endVoiceSessionAndSave.
+        voiceModeTask?.cancel()
+        voiceModeTask = nil
+        pipeline?.unwireAutoReopen()
+        pipeline?.stopAll()
+
         do {
             // 1. Compile user turns into single answer text
             let answerText = session.compileAnswer()
