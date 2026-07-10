@@ -8,7 +8,7 @@ Native iOS client for Lifehug. Swift 6, iOS 18+, SwiftUI.
 
 - **Target:** iOS 18+ (Swift 6 strict concurrency)
 - **UI:** SwiftUI with `@Observable` (not Combine/@Published)
-- **On-device ML:** Kokoro TTS (FluidAudio, CoreML), Llama 3.2 1B (MLX), WhisperKit small.en (STT)
+- **On-device ML:** Kokoro TTS (FluidAudio, CoreML), 3 user-selectable MLX LLM tiers — Gemma 3 1B QAT / SmolLM3 3B / Gemma 3 4B text, all 4-bit, RAM-tiered default (see Lifehug/Lifehug/App/ModelConfig.swift), WhisperKit small.en (STT)
 - **Pipeline:** STT → LLM → TTS orchestrated by `VoicePipeline` with `PipelineState` enum (.idle/.listening/.processing/.speaking)
 - **Key services:** StorageService (file I/O), RotationEngine (question selection), QuestionBankParser (markdown parsing)
 - **Audio session:** owned app-side by `AudioSessionController` (single `setCategory`/`setActive` caller), sequenced around WhisperKit's internal reconfigure
@@ -20,8 +20,8 @@ Native iOS client for Lifehug. Swift 6, iOS 18+, SwiftUI.
 ```bash
 # Build & test (use explicit project — multiple .xcodeproj exist; run from nested Lifehug/)
 cd Lifehug
-xcodebuild build -project Lifehug.xcodeproj -scheme Lifehug -destination 'platform=iOS Simulator,name=iPhone 16'
-xcodebuild test -project Lifehug.xcodeproj -scheme Lifehug -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild build -project Lifehug.xcodeproj -scheme Lifehug -destination 'platform=iOS Simulator,name=iPhone 17'
+xcodebuild test -project Lifehug.xcodeproj -scheme Lifehug -destination 'platform=iOS Simulator,name=iPhone 17'
 
 # Archive for TestFlight
 xcodebuild archive -project Lifehug.xcodeproj -scheme Lifehug -archivePath /tmp/Lifehug.xcarchive -destination 'generic/platform=iOS' -allowProvisioningUpdates
