@@ -25,6 +25,23 @@ final class STTService {
     /// Voice recognition is usable only when the model is fully loaded.
     var isASRReady: Bool { asrState == .ready }
 
+    /// Shared status label while ASR is downloading/loading/failed; nil when
+    /// idle/ready so each view supplies its own resting label. Single source for
+    /// the copy both ConversationView and DailyQuestionView render.
+    var preparingStatusLabel: String? {
+        switch asrState {
+        case .downloading:
+            let pct = Int((downloadProgress * 100).rounded())
+            return "Preparing voice… \(pct)%"
+        case .loading:
+            return "Preparing voice…"
+        case .failed(let message):
+            return message
+        case .idle, .ready:
+            return nil
+        }
+    }
+
     private let logger = Logger(subsystem: "com.lifehug.app", category: "STT")
 
     /// WhisperKit pipeline — created once at launch, persists across sessions.
@@ -76,6 +93,9 @@ final class STTService {
             logger.info("WhisperKit small.en ready")
         } catch is CancellationError {
             asrState = .idle
+        } catch is TimeoutError {
+            logger.error("WhisperKit download timed out")
+            asrState = .failed("Voice recognition timed out. Tap to retry.")
         } catch {
             logger.error("WhisperKit load failed: \(error)")
             asrState = .failed("Voice recognition failed to load. Tap to retry.")
@@ -96,20 +116,26 @@ final class STTService {
         // 1. Download (surfaces progress, distinct from the compile/load phase).
         asrState = .downloading
         downloadProgress = 0
-        let modelFolder = try await WhisperKit.download(
-            variant: "small.en",
-            from: "argmaxinc/whisperkit-coreml",
-            // `@Sendable` so this non-MainActor closure can be handed to WhisperKit's
-            // nonisolated `download` without "sending main-actor-isolated value" —
-            // mirrors the `stateChangeCallback` closure below. It only reads a Sendable
-            // Double and hops back to the MainActor via a Task.
-            progressCallback: { @Sendable [weak self] progress in
-                let fraction = progress.fractionCompleted
-                Task { @MainActor [weak self] in
-                    self?.downloadProgress = fraction
+        // Time-bound the download: the underlying URLSession's resource timeout is
+        // ~7 days, so a trickle-stalled socket would otherwise pin `.downloading`
+        // forever with the mic disabled and no in-session retry (loadASRModel
+        // early-returns while a load is in flight). Mirrors KokoroManager.loadEngine.
+        let modelFolder = try await withTimeout(seconds: 180) {
+            try await WhisperKit.download(
+                variant: "small.en",
+                from: "argmaxinc/whisperkit-coreml",
+                // `@Sendable` so this non-MainActor closure can be handed to WhisperKit's
+                // nonisolated `download` without "sending main-actor-isolated value" —
+                // mirrors the `stateChangeCallback` closure below. It only reads a Sendable
+                // Double and hops back to the MainActor via a Task.
+                progressCallback: { @Sendable [weak self] progress in
+                    let fraction = progress.fractionCompleted
+                    Task { @MainActor [weak self] in
+                        self?.downloadProgress = fraction
+                    }
                 }
-            }
-        )
+            )
+        }
 
         // 2. Load + prewarm from the downloaded folder (no re-download). The init
         //    returning without throwing IS the authoritative "ready" signal.
@@ -356,10 +382,16 @@ final class STTService {
             .isEmpty
         guard let pipe = whisperPipe else { return }
         nonisolated(unsafe) let readProcessor = pipe.audioProcessor
-        let samples = Array(readProcessor.audioSamples)
-        guard Self.shouldRunFinalTranscription(partialIsEmpty: partialEmpty, sampleCount: samples.count) else {
+        // Gate on the O(1) count first — materializing the buffer (~11.5 MB for a
+        // full 3-minute recording) is deferred to the rare empty-streaming path.
+        // The tap is already stopped, so the buffer is static between these reads.
+        guard Self.shouldRunFinalTranscription(
+            partialIsEmpty: partialEmpty,
+            sampleCount: readProcessor.audioSamples.count
+        ) else {
             return
         }
+        let samples = Array(readProcessor.audioSamples)
 
         // WhisperKit is not Sendable; mirror the existing nonisolated(unsafe) crossing.
         // Bind the [TranscriptionResult] overload explicitly (KTD3) via the annotation.

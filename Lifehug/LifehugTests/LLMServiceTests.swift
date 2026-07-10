@@ -105,6 +105,13 @@ struct LLMServiceTests {
         #expect(cleaned == "answer")
     }
 
+    @Test("cleanResponse keeps prose between two separate <think> blocks")
+    func cleanResponseKeepsProseBetweenThinkBlocks() {
+        // Pins the non-greedy match: a greedy regex would swallow "keep" too.
+        let cleaned = LLMService.cleanResponse("<think>a</think>keep<think>b</think>")
+        #expect(cleaned == "keep")
+    }
+
     @Test("cleanResponse drops a dangling unclosed <think> tail")
     func cleanResponseDropsDanglingThinkTail() {
         let cleaned = LLMService.cleanResponse("answer <think>reasoning that never closed")

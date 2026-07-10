@@ -41,7 +41,7 @@ final class ModelState {
         #else
         // One-time sweep of weights retired by the model-tier swap, before the
         // cached-model check so stale directories never influence launch routing.
-        downloader.sweepOrphanedModels()
+        await downloader.sweepOrphanedModels()
 
         // If any model is cached, auto-set the selection to match and load it.
         // This handles returning users and skips the model picker.

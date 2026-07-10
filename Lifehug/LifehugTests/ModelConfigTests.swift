@@ -72,6 +72,7 @@ struct ModelConfigTests {
         #expect(ModelConfig.LLM.ModelOption.balanced.diskSizeMB == 1747)
         #expect(ModelConfig.LLM.ModelOption.quality.diskSizeMB == 2599)
         #expect(ModelConfig.LLM.ModelOption.quality.downloadSizeLabel == "2.6 GB download")
+        #expect(ModelConfig.LLM.ModelOption.fast.downloadSizeLabel == "771 MB download")
     }
 
     @Test("RAM gates are monotonic across tiers")

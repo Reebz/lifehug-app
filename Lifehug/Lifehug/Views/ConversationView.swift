@@ -71,8 +71,10 @@ struct ConversationView: View {
                     }
                 }
                 .accessibilityLabel(voiceMode ? "Disable voice mode" : "Enable voice mode")
-                // Cannot enter voice mode until speech recognition is ready.
-                .disabled(!voiceMode && sttService.asrState != .ready)
+                // Disabled only while ASR is actively preparing — a .failed/.idle state
+                // must leave the toggle tappable so entering voice mode can retry the
+                // load (toggleVoiceMode re-attempts loadASRModel when not ready).
+                .disabled(!voiceMode && asrIsPreparing)
             }
         }
         .task {
@@ -259,17 +261,7 @@ struct ConversationView: View {
 
     /// Status text shown in the voice bar while ASR is not yet ready.
     private var asrPreparingLabel: String {
-        switch sttService.asrState {
-        case .downloading:
-            let pct = Int((sttService.downloadProgress * 100).rounded())
-            return "Preparing voice… \(pct)%"
-        case .loading:
-            return "Preparing voice…"
-        case .failed(let message):
-            return message
-        default:
-            return "Preparing voice…"
-        }
+        sttService.preparingStatusLabel ?? "Preparing voice…"
     }
 
     private var voiceInputBar: some View {

@@ -184,12 +184,16 @@ final class ModelDownloader {
     ]
 
     /// Sweep weights for retired repo IDs (~2 GB across the old Fast/Balanced dirs)
-    /// so they don't strand on returning users' devices.
-    func sweepOrphanedModels() {
+    /// so they don't strand on returning users' devices. The deletes run off the
+    /// MainActor — awaited so launch routing still happens strictly after the sweep,
+    /// but without blocking the main thread on the filesystem walk.
+    func sweepOrphanedModels() async {
         let hubDir = storage.modelsDirectory
             .appendingPathComponent("huggingface")
             .appendingPathComponent("hub")
-        Self.sweepOrphanedModels(hubDirectory: hubDir)
+        await Task.detached(priority: .utility) {
+            Self.sweepOrphanedModels(hubDirectory: hubDir)
+        }.value
     }
 
     /// Core sweep logic — takes the hub directory so tests can point it at a

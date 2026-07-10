@@ -130,6 +130,31 @@ struct ModelDownloadSmokeTests {
 
     private static let selectionKey = "llm_selected_model"
 
+    /// Optional single-tier filter for per-process gate runs (see suite comment).
+    /// `nonisolated` — the @Test `arguments:` expression is evaluated outside the
+    /// suite's MainActor isolation by the testing macro.
+    private nonisolated static let smokeTierFilter = ProcessInfo.processInfo.environment["LIFEHUG_SMOKE_TIER"]
+
+    /// Tiers this process will actually exercise. Driving the parameterization from
+    /// the env var (instead of an in-body early return) means a skipped tier emits
+    /// NO test case at all — a filtered run can never report skipped-and-passing
+    /// cases, so the gate cannot read green without having downloaded something.
+    private nonisolated static var smokeTiers: [ModelConfig.LLM.ModelOption] {
+        ModelConfig.LLM.ModelOption.allCases.filter {
+            smokeTierFilter == nil || $0.rawValue == smokeTierFilter
+        }
+    }
+
+    @Test("LIFEHUG_SMOKE_TIER names a real tier when set")
+    func smokeTierEnvIsValid() {
+        if let tier = Self.smokeTierFilter {
+            #expect(
+                ModelConfig.LLM.ModelOption(rawValue: tier) != nil,
+                "LIFEHUG_SMOKE_TIER='\(tier)' matches no tier — set fast|balanced|quality; a typo would otherwise skip every download and read green"
+            )
+        }
+    }
+
     private func withSavedSelection(_ body: () async throws -> Void) async rethrows {
         let prior = UserDefaults.standard.string(forKey: Self.selectionKey)
         defer {
@@ -142,15 +167,12 @@ struct ModelDownloadSmokeTests {
         try await body()
     }
 
-    @Test("Each tier's repo starts downloading real bytes", arguments: ModelConfig.LLM.ModelOption.allCases)
+    // A cancelled in-flight download can wedge the shared LLMModelFactory for the
+    // rest of the process, so the gate runs one tier per test process: set
+    // LIFEHUG_SMOKE_TIER to a tier rawValue and invoke once per tier. The env var
+    // drives the `arguments:` list itself, so non-selected tiers produce no cases.
+    @Test("Each tier's repo starts downloading real bytes", arguments: smokeTiers)
     func downloadStarts(option: ModelConfig.LLM.ModelOption) async throws {
-        // A cancelled in-flight download can wedge the shared LLMModelFactory for
-        // the rest of the process, so the gate runs one tier per test process:
-        // set LIFEHUG_SMOKE_TIER to this case's rawValue and invoke once per tier.
-        if let tier = ProcessInfo.processInfo.environment["LIFEHUG_SMOKE_TIER"],
-           tier != option.rawValue {
-            return
-        }
         try await withSavedSelection {
             ModelConfig.LLM.selectedModel = option
             let downloader = ModelDownloader()

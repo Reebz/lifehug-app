@@ -336,17 +336,7 @@ struct DailyQuestionView: View {
     private var micStateLabel: String {
         guard voiceSessionActive, let pipeline else {
             // Not in a session — reflect ASR readiness so the mic reads honestly.
-            switch sttService.asrState {
-            case .downloading:
-                let pct = Int((sttService.downloadProgress * 100).rounded())
-                return "Preparing voice… \(pct)%"
-            case .loading:
-                return "Preparing voice…"
-            case .failed(let message):
-                return message
-            case .idle, .ready:
-                return "Tap to start"
-            }
+            return sttService.preparingStatusLabel ?? "Tap to start"
         }
         switch pipeline.state {
         case .listening: return "Recording..."
