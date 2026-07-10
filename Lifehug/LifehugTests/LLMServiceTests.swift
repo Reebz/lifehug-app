@@ -6,11 +6,10 @@ import Foundation
 @MainActor
 struct LLMServiceTests {
 
-    // NOTE: cleanChunk is `private static` on LLMService, so it cannot be called
-    // directly even with @testable import. We test it indirectly by verifying that
-    // memoirInterviewerPrompt (which IS accessible) produces correct output, and
-    // by documenting the cleanChunk behavior via streamResponse integration tests
-    // that would require a loaded model (out of scope for unit tests).
+    // NOTE: cleanChunk and cleanResponse are `nonisolated static` (internal, not
+    // private) so their token-stripping rules are directly testable here — a token
+    // leak is invisible on the simulator (MLX inference is mocked), so these tests
+    // are the only pre-device proof.
 
     // MARK: - memoirInterviewerPrompt
 
@@ -92,6 +91,66 @@ struct LLMServiceTests {
         #expect(service.pendingSystemPrompt == "second")
     }
 
+    // MARK: - cleanResponse (U2)
+
+    @Test("cleanResponse strips a trailing <end_of_turn> so the saved answer is clean")
+    func cleanResponseStripsEndOfTurn() {
+        let cleaned = LLMService.cleanResponse("What did the kitchen smell like?<end_of_turn>")
+        #expect(cleaned == "What did the kitchen smell like?")
+    }
+
+    @Test("cleanResponse removes a <think> block including its inner content")
+    func cleanResponseRemovesThinkBlock() {
+        let cleaned = LLMService.cleanResponse("<think>reasoning</think>answer")
+        #expect(cleaned == "answer")
+    }
+
+    @Test("cleanResponse drops a dangling unclosed <think> tail")
+    func cleanResponseDropsDanglingThinkTail() {
+        let cleaned = LLMService.cleanResponse("answer <think>reasoning that never closed")
+        #expect(cleaned == "answer")
+    }
+
+    @Test("cleanResponse still strips the Llama end tokens")
+    func cleanResponseStripsLlamaTokens() {
+        let cleaned = LLMService.cleanResponse("Tell me more about that.<|eot_id|><|end_of_text|>")
+        #expect(cleaned == "Tell me more about that.")
+    }
+
+    @Test("cleanResponse strips ChatML turn tokens")
+    func cleanResponseStripsChatMLTokens() {
+        let cleaned = LLMService.cleanResponse("<|im_start|>What happened next?<|im_end|>")
+        #expect(cleaned == "What happened next?")
+    }
+
+    @Test("cleanResponse leaves prose containing a bare < untouched")
+    func cleanResponseLeavesBareLessThanAlone() {
+        let prose = "Back then 2 < 3 was the only math I trusted, and x < y stayed true."
+        #expect(LLMService.cleanResponse(prose) == prose)
+    }
+
+    // MARK: - cleanChunk (U2)
+
+    @Test("cleanChunk strips template tag tokens so nothing token-shaped is emitted", arguments: [
+        "<end_of_turn>", "<start_of_turn>model", "<start_of_turn>user",
+        "<start_of_turn>", "<think>", "</think>",
+    ])
+    func cleanChunkStripsTagTokens(token: String) {
+        // streamResponse yields only non-empty cleaned chunks, so an empty result
+        // here means a token-only chunk emits nothing downstream (no TTS leak).
+        #expect(LLMService.cleanChunk(token).isEmpty)
+    }
+
+    @Test("cleanChunk strips a tag token embedded in a text chunk")
+    func cleanChunkStripsEmbeddedTagToken() {
+        #expect(LLMService.cleanChunk("here.<start_of_turn>model") == "here.")
+    }
+
+    @Test("cleanChunk leaves prose containing a bare < untouched")
+    func cleanChunkLeavesBareLessThanAlone() {
+        #expect(LLMService.cleanChunk("2 < 3 ") == "2 < 3 ")
+    }
+
     // MARK: - Single-owner container lifecycle (U7 / R6)
 
     @Test("loadModel marks loaded on simulator; unloadModel releases it")
@@ -104,5 +163,37 @@ struct LLMServiceTests {
         #expect(service.isLoaded == true)
         service.unloadModel()
         #expect(service.isLoaded == false)
+    }
+}
+
+/// Tier is injected directly so this suite never touches the shared
+/// "llm_selected_model" UserDefaults key (suites run concurrently, and
+/// ModelConfigTests owns that key).
+@Suite("LLMService instruction building")
+struct LLMServiceInstructionTests {
+
+    @Test("Balanced tier appends /no_think to session instructions")
+    func balancedAppendsNoThink() {
+        let instructions = LLMService.sessionInstructions("You are a warm memoir interviewer.", tier: .balanced)
+        #expect(instructions.hasPrefix("You are a warm memoir interviewer."))
+        #expect(instructions.hasSuffix("/no_think"))
+    }
+
+    @Test("Fast and Quality tiers pass instructions through unchanged", arguments: [
+        ModelConfig.LLM.ModelOption.fast,
+        ModelConfig.LLM.ModelOption.quality,
+    ])
+    func otherTiersPassThrough(option: ModelConfig.LLM.ModelOption) {
+        let base = "You are a warm memoir interviewer."
+        let instructions = LLMService.sessionInstructions(base, tier: option)
+        #expect(instructions == base)
+        #expect(!instructions.contains("/no_think"))
+    }
+
+    @Test("Long-form (chapter) instructions carry /no_think on Balanced")
+    func longFormInstructionsCarryNoThinkOnBalanced() {
+        let instructions = LLMService.sessionInstructions(LLMService.longFormInstructions, tier: .balanced)
+        #expect(instructions.contains("memoir writer"))
+        #expect(instructions.hasSuffix("/no_think"))
     }
 }

@@ -10,7 +10,7 @@ enum ChapterGenerator {
 
     private static let logger = Logger(subsystem: "com.lifehug.app", category: "ChapterGenerator")
 
-    /// Generate a chapter using a 3-pass pipeline optimized for the 1B model.
+    /// Generate a chapter using a 3-pass pipeline sized for the smallest model tier.
     ///
     /// Pass 1 (Extract): Pull key facts, moments, emotions as bullet points.
     /// Pass 2 (Outline): Create chapter structure from bullets.
@@ -91,7 +91,7 @@ enum ChapterGenerator {
     ) async throws -> String {
         let sortedAnswers = answers.sorted { $0.questionID < $1.questionID }
 
-        // Batch into groups of 10 to stay within the 1B model's context window
+        // Batch into groups of 10 to stay within the smallest model tier's context window
         let batchSize = 10
         var allBullets: [String] = []
 

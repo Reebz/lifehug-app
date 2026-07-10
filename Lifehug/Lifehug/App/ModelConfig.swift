@@ -6,40 +6,42 @@ enum ModelConfig {
 
     enum LLM {
         /// Available LLM models the user can choose from.
+        /// Cases are tier-named (not model-named) so a future model swap
+        /// doesn't invalidate persisted selections again.
         enum ModelOption: String, CaseIterable, Codable, Sendable {
-            case llama1B = "llama-1b"
-            case smollm3B = "smollm3-3b"
-            case llama3B = "llama-3b"
+            case fast = "fast"
+            case balanced = "balanced"
+            case quality = "quality"
 
             var huggingFaceID: String {
                 switch self {
-                case .llama1B: "mlx-community/Llama-3.2-1B-Instruct-4bit"
-                case .smollm3B: "mlx-community/SmolLM3-3B-3bit"
-                case .llama3B: "mlx-community/Llama-3.2-3B-Instruct-4bit"
+                case .fast: "mlx-community/gemma-3-1b-it-qat-4bit"
+                case .balanced: "mlx-community/SmolLM3-3B-4bit"
+                case .quality: "mlx-community/gemma-3-text-4b-it-4bit"
                 }
             }
 
             var displayName: String {
                 switch self {
-                case .llama1B: "Llama 1B — Fast"
-                case .smollm3B: "SmolLM3 3B — Balanced"
-                case .llama3B: "Llama 3B — Quality"
+                case .fast: "Gemma 1B — Fast"
+                case .balanced: "SmolLM3 3B — Balanced"
+                case .quality: "Gemma 4B — Quality"
                 }
             }
 
             var diskSizeMB: Int {
                 switch self {
-                case .llama1B: 700
-                case .smollm3B: 1350
-                case .llama3B: 1820
+                case .fast: 771
+                case .balanced: 1747
+                case .quality: 2599
                 }
             }
 
             var description: String {
                 switch self {
-                case .llama1B: "Fastest responses, works on all devices"
-                case .smollm3B: "Better quality, fits most modern iPhones"
-                case .llama3B: "Best conversational quality, recommended for newer iPhones"
+                case .fast: "Fastest responses, works on all devices"
+                case .balanced: "Better quality, fits most modern iPhones"
+                case .quality: "Best conversational quality, recommended for newer iPhones"
                 }
             }
 
@@ -54,18 +56,18 @@ enum ModelConfig {
             /// Minimum RAM in bytes to run this model (with Kokoro TTS alongside).
             var minimumRAM: UInt64 {
                 switch self {
-                case .llama1B: 4_000_000_000   // 4 GB — runs on anything
-                case .smollm3B: 6_000_000_000  // 6 GB — needs iPhone 15+
-                case .llama3B: 8_000_000_000   // 8 GB — needs iPhone 15 Pro+
+                case .fast: 4_000_000_000      // 4 GB — runs on anything
+                case .balanced: 6_000_000_000  // 6 GB — needs iPhone 15+
+                case .quality: 8_000_000_000   // 8 GB — needs iPhone 15 Pro+
                 }
             }
 
             /// Recommended minimum RAM — below this the model runs but may be tight.
             var recommendedRAM: UInt64 {
                 switch self {
-                case .llama1B: 4_000_000_000
-                case .smollm3B: 7_000_000_000  // Tight on 6 GB
-                case .llama3B: 8_000_000_000
+                case .fast: 4_000_000_000
+                case .balanced: 7_000_000_000  // Tight on 6 GB
+                case .quality: 8_000_000_000
                 }
             }
 
@@ -82,21 +84,36 @@ enum ModelConfig {
             /// Short label for the download button (e.g., "Fast", "Balanced", "Quality").
             var shortLabel: String {
                 switch self {
-                case .llama1B: "Fast"
-                case .smollm3B: "Balanced"
-                case .llama3B: "Quality"
+                case .fast: "Fast"
+                case .balanced: "Balanced"
+                case .quality: "Quality"
                 }
             }
         }
 
+        /// Pre-rename persisted rawValues (model-named) mapped to their tier.
+        private static let legacyRawValueMapping: [String: ModelOption] = [
+            "llama-1b": .fast,
+            "smollm3-3b": .balanced,
+            "llama-3b": .quality,
+        ]
+
         /// The user's selected model, persisted to UserDefaults.
         static var selectedModel: ModelOption {
             get {
-                guard let raw = UserDefaults.standard.string(forKey: "llm_selected_model"),
-                      let option = ModelOption(rawValue: raw) else {
+                guard let raw = UserDefaults.standard.string(forKey: "llm_selected_model") else {
                     return recommendedModel
                 }
-                return option
+                if let option = ModelOption(rawValue: raw) {
+                    return option
+                }
+                // Legacy model-named rawValue — map to the same tier and rewrite
+                // the stored value so this migration fires only once.
+                if let migrated = legacyRawValueMapping[raw] {
+                    UserDefaults.standard.set(migrated.rawValue, forKey: "llm_selected_model")
+                    return migrated
+                }
+                return recommendedModel
             }
             set {
                 UserDefaults.standard.set(newValue.rawValue, forKey: "llm_selected_model")
@@ -116,9 +133,9 @@ enum ModelConfig {
         /// Device-aware recommendation based on total RAM.
         static var recommendedModel: ModelOption {
             let totalRAM = ProcessInfo.processInfo.physicalMemory
-            if totalRAM >= 8_000_000_000 { return .llama3B }
-            if totalRAM >= 6_000_000_000 { return .smollm3B }
-            return .llama1B
+            if totalRAM >= 8_000_000_000 { return .quality }
+            if totalRAM >= 6_000_000_000 { return .balanced }
+            return .fast
         }
 
         /// The HuggingFace model ID for the currently selected model.

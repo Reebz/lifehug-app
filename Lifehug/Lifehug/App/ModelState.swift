@@ -39,6 +39,10 @@ final class ModelState {
         isLoaded = true
         return
         #else
+        // One-time sweep of weights retired by the model-tier swap, before the
+        // cached-model check so stale directories never influence launch routing.
+        downloader.sweepOrphanedModels()
+
         // If any model is cached, auto-set the selection to match and load it.
         // This handles returning users and skips the model picker.
         if let cached = downloader.cachedModelOption {
@@ -55,6 +59,9 @@ final class ModelState {
             // and resumes the existing files rather than forcing a full re-download.
         }
         // Not yet downloaded; stay at .notDownloaded and let user tap Download.
+        // Read the selection once so a legacy persisted rawValue is migrated to
+        // its tier before the download screen (or any later reader) sees it.
+        _ = ModelConfig.LLM.selectedModel
         syncFromDownloader()
         #endif
     }

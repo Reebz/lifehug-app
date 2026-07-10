@@ -170,6 +170,45 @@ final class ModelDownloader {
         }
     }
 
+    // MARK: - Orphan Sweep
+
+    /// Hub directory names for repo IDs retired by the model-tier swap, using the
+    /// same "models--" + repo ID with "/" → "--" naming as `cachedModelOption`.
+    /// Explicit allowlist — never "anything outside allCases" — so an unexpected
+    /// directory is never destroyed. models--mlx-community--Llama-3.2-3B-Instruct-4bit
+    /// is deliberately absent: it is the Quality tier's revert asset and is retained
+    /// until the device pass confirms the 4B tier.
+    nonisolated static let orphanedModelDirNames = [
+        "models--mlx-community--Llama-3.2-1B-Instruct-4bit",
+        "models--mlx-community--SmolLM3-3B-3bit",
+    ]
+
+    /// Sweep weights for retired repo IDs (~2 GB across the old Fast/Balanced dirs)
+    /// so they don't strand on returning users' devices.
+    func sweepOrphanedModels() {
+        let hubDir = storage.modelsDirectory
+            .appendingPathComponent("huggingface")
+            .appendingPathComponent("hub")
+        Self.sweepOrphanedModels(hubDirectory: hubDir)
+    }
+
+    /// Core sweep logic — takes the hub directory so tests can point it at a
+    /// temp dir. Idempotent: absent directories are a no-op, never an error.
+    nonisolated static func sweepOrphanedModels(hubDirectory: URL) {
+        let logger = Logger(subsystem: "com.lifehug.app", category: "ModelDownloader")
+        let fm = FileManager.default
+        for dirName in orphanedModelDirNames {
+            let dir = hubDirectory.appendingPathComponent(dirName)
+            guard fm.fileExists(atPath: dir.path) else { continue }
+            do {
+                try fm.removeItem(at: dir)
+                logger.info("Swept orphaned model directory: \(dirName)")
+            } catch {
+                logger.error("Failed to sweep orphaned model directory \(dirName): \(error)")
+            }
+        }
+    }
+
     // MARK: - Private
 
     private func performDownload() async throws {

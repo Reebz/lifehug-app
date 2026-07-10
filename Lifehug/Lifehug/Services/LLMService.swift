@@ -27,7 +27,7 @@ final class LLMService {
 
     /// Single-owner container source (U7 / R6). LLMService does NOT load its own
     /// container — it borrows the one loaded and owned by `ModelDownloader` (exposed
-    /// via `ModelState`) so only one Llama container is ever resident. Wired by the
+    /// via `ModelState`) so only one model container is ever resident. Wired by the
     /// app at launch via `configureContainerProvider`.
     private var containerProvider: (@MainActor () -> ModelContainer?)?
     /// Triggers the single downloader-owned load path (used by call sites that call
@@ -94,6 +94,18 @@ final class LLMService {
 
     // MARK: - Conversation
 
+    /// Final instruction string for a ChatSession. SmolLM3 (the Balanced tier)
+    /// reasons at length by default; its chat template switches to direct answers
+    /// when the literal "/no_think" appears in the system message. Gemma tiers
+    /// (Fast/Quality) pass through unchanged.
+    nonisolated static func sessionInstructions(
+        _ base: String,
+        tier: ModelConfig.LLM.ModelOption = ModelConfig.LLM.selectedModel
+    ) -> String {
+        guard tier == .balanced else { return base }
+        return base + " /no_think"
+    }
+
     func startNewSession(systemPrompt: String) {
         // Always retain the prompt so a session can materialize later even if the
         // container is not ready yet (cold launch — loadModel() may still be running).
@@ -108,7 +120,7 @@ final class LLMService {
 
         chatSession = ChatSession(
             container,
-            instructions: systemPrompt,
+            instructions: Self.sessionInstructions(systemPrompt),
             generateParameters: generateParameters
         )
         logger.info("New chat session started")
@@ -125,7 +137,7 @@ final class LLMService {
         }
         let session = ChatSession(
             container,
-            instructions: prompt,
+            instructions: Self.sessionInstructions(prompt),
             generateParameters: generateParameters
         )
         chatSession = session
@@ -224,11 +236,16 @@ final class LLMService {
         // boundaries internally. No concurrent access — we await the result synchronously.
         nonisolated(unsafe) let unsafeSession = session
         let result = try await unsafeSession.respond(to: userMessage)
-        return cleanResponse(result)
+        return Self.cleanResponse(result)
         #endif
     }
 
     // MARK: - Long-Form Generation
+
+    /// Base instructions for the dedicated chapter-generation session. Extracted so
+    /// tests can verify the `/no_think` append on the long-form path too.
+    nonisolated static let longFormInstructions =
+        "You are a skilled memoir writer. Follow the instructions precisely."
 
     /// Generate a longer response with a configurable token limit.
     /// Used for chapter generation where the default maxTokens is too short.
@@ -250,7 +267,7 @@ final class LLMService {
         // Use a dedicated session so we don't pollute the conversation session
         let session = ChatSession(
             container,
-            instructions: "You are a skilled memoir writer. Follow the instructions precisely.",
+            instructions: Self.sessionInstructions(Self.longFormInstructions),
             generateParameters: generateParameters
         )
 
@@ -273,17 +290,27 @@ final class LLMService {
         }
 
         logger.info("Long-form generation complete: \(tokenCount) tokens")
-        return cleanResponse(result)
+        return Self.cleanResponse(result)
         #endif
     }
 
     // MARK: - Text Cleaning
 
-    private nonisolated static func cleanChunk(_ chunk: String) -> String {
+    nonisolated static func cleanChunk(_ chunk: String) -> String {
         var text = chunk
         // Strip special tokens
         text = text.replacingOccurrences(of: "<|", with: "")
         text = text.replacingOccurrences(of: "|>", with: "")
+        // Strip pipe-less template tag tokens (Gemma turn markers, SmolLM3 think
+        // tags). Role-suffixed forms go first so "<start_of_turn>" alone doesn't
+        // leave "model"/"user" behind. Tag tokens only — suppressing reasoning
+        // content across chunks is the /no_think prompt's job, not the cleaner's.
+        for token in [
+            "<start_of_turn>model", "<start_of_turn>user", "<start_of_turn>",
+            "<end_of_turn>", "<think>", "</think>",
+        ] {
+            text = text.replacingOccurrences(of: token, with: "")
+        }
         // Strip common markdown artifacts from LLM output
         if text.hasPrefix("```") || text.hasSuffix("```") {
             text = text.replacingOccurrences(of: "```", with: "")
@@ -291,10 +318,25 @@ final class LLMService {
         return text
     }
 
-    private func cleanResponse(_ response: String) -> String {
+    nonisolated static func cleanResponse(_ response: String) -> String {
         var text = response
-        text = text.replacingOccurrences(of: "<|eot_id|>", with: "")
-        text = text.replacingOccurrences(of: "<|end_of_text|>", with: "")
+        // Remove entire <think>…</think> reasoning blocks first — inner content
+        // included, non-greedy so text between separate blocks survives. A dangling
+        // unclosed <think> drops from the tag to the end of the response.
+        text = text.replacingOccurrences(
+            of: "<think>[\\s\\S]*?</think>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(
+            of: "<think>[\\s\\S]*$", with: "", options: .regularExpression)
+        // Then strip exact template token literals (Llama, Gemma, ChatML). Never a
+        // broad <[^>]+> match — prose like "2 < 3" must pass through untouched.
+        for token in [
+            "<|eot_id|>", "<|end_of_text|>",
+            "<start_of_turn>model", "<start_of_turn>user", "<start_of_turn>",
+            "<end_of_turn>",
+            "<|im_start|>", "<|im_end|>",
+        ] {
+            text = text.replacingOccurrences(of: token, with: "")
+        }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return text
     }

@@ -4,7 +4,10 @@ struct LaunchView: View {
     @Environment(ModelState.self) private var modelState
     @Environment(AppState.self) private var appState
 
-    @State private var selectedModel: ModelConfig.LLM.ModelOption = ModelConfig.LLM.recommendedModel
+    // Seed from the persisted selection (migrating legacy rawValues on read) so a
+    // returning user's download screen preselects their own tier, not the RAM pick.
+    @State private var selectedModel: ModelConfig.LLM.ModelOption =
+        ModelConfig.LLM.hasSelectedModel ? ModelConfig.LLM.selectedModel : ModelConfig.LLM.recommendedModel
     @State private var showModelPicker = false
 
     var body: some View {
