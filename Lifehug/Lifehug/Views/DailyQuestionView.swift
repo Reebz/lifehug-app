@@ -23,6 +23,7 @@ struct DailyQuestionView: View {
     @State private var voiceSessionTask: Task<Void, Never>?
     @State private var isSaving: Bool = false
     @State private var hasStartedLLMSession: Bool = false
+    @State private var showReAnswerConfirm: Bool = false
 
     // Constants
     private let micDiameter: CGFloat = 200
@@ -94,9 +95,34 @@ struct DailyQuestionView: View {
                 )
             }
             .modifier(LifehugBarStyle())
+            .confirmationDialog(
+                "Replace your previous answer?",
+                isPresented: $showReAnswerConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Replace & Delete Old Recording", role: .destructive) {
+                    Task { await endVoiceSessionAndSave() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This question already has a saved answer with a voice recording. Saving will permanently delete the previous recording. This cannot be undone.")
+            }
         }
         .task {
             await loadQuestionData()
+        }
+    }
+
+    /// Gate the save on the re-answer contract (KTD9): confirm before replacing a prior
+    /// answer that has a recording; otherwise save directly.
+    private func beginSaveFlow() {
+        guard let question = session.currentQuestion else { return }
+        if let url = try? storageService.answerURL(questionID: question.id),
+           let prior = try? storageService.readAnswer(at: url),
+           prior.segments.contains(where: { $0.clipFilename != nil }) {
+            showReAnswerConfirm = true
+        } else {
+            Task { await endVoiceSessionAndSave() }
         }
     }
 
@@ -253,7 +279,7 @@ struct DailyQuestionView: View {
 
             // Done & Save button
             Button {
-                Task { await endVoiceSessionAndSave() }
+                beginSaveFlow()
             } label: {
                 Group {
                     if isSaving {
@@ -555,8 +581,14 @@ struct DailyQuestionView: View {
         let pipe = VoicePipeline(sttService: sttService, llmService: llmService, ttsService: ttsService)
         pipe.autoReopenMic = true
 
-        pipe.onTranscriptFinalized = { text in
-            session.addTurn(role: .user, text: text)
+        pipe.onTranscriptFinalized = { finalized in
+            session.addTurn(
+                role: .user,
+                text: finalized.text,
+                clipFilename: finalized.clipFilename,
+                isVoice: finalized.isVoice,
+                needsTranscription: finalized.needsTranscription
+            )
         }
         pipe.onResponseGenerated = { text in
             session.addTurn(role: .assistant, text: text)
@@ -564,6 +596,7 @@ struct DailyQuestionView: View {
         pipe.onTerminationDetected = {
             Task { await endVoiceSessionAndSave() }
         }
+        pipe.clipDestinationProvider = clipDestination
 
         pipe.wireAutoReopen()
 
@@ -595,10 +628,21 @@ struct DailyQuestionView: View {
         }
     }
 
+    /// Clip staging destination for the next recorded turn (KTD7), computed from the current
+    /// question and user-turn count. Handed to the pipeline as `clipDestinationProvider`.
+    private func clipDestination() -> STTService.ClipContext? {
+        guard let q = session.currentQuestion else { return nil }
+        let turnIndex = session.conversationTurns.filter { $0.role == .user }.count
+        let filename = "\(q.id)-\(session.recordingSessionID.uuidString)-\(turnIndex).m4a"
+        guard StorageService.isValidClipFilename(filename) else { return nil }
+        let stagingDir = storageService.clipsStagingDirectory
+            .appendingPathComponent(session.recordingSessionID.uuidString, isDirectory: true)
+        return STTService.ClipContext(stagingDirectory: stagingDir, clipFilename: filename)
+    }
+
     private func endVoiceSession() {
         voiceSessionTask?.cancel()
         voiceSessionTask = nil
-        pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
         voiceSessionActive = false
         pipeline = nil
@@ -609,7 +653,6 @@ struct DailyQuestionView: View {
 
         voiceSessionTask?.cancel()
         voiceSessionTask = nil
-        pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
         voiceSessionActive = false
         pipeline = nil
@@ -628,12 +671,21 @@ struct DailyQuestionView: View {
         // Stop pipeline
         voiceSessionTask?.cancel()
         voiceSessionTask = nil
-        pipeline?.unwireAutoReopen()
         pipeline?.stopAll()
+        // Wait for the STT teardown (raw dumps) and off-path AAC encodes before committing
+        // the staged clips (KTD2).
+        await sttService.stopAndWait()
+        await sttService.awaitPendingClipWrites()
 
         do {
-            // Compile answer from session turns
+            // Re-answer contract (KTD9): capture the prior answer's clips before overwriting.
+            let priorClips: [String] = (try? storageService.answerURL(questionID: question.id))
+                .flatMap { try? storageService.readAnswer(at: $0) }?
+                .segments.compactMap(\.clipFilename) ?? []
+
+            // Compile answer text + the audio-linked segments from session turns
             let answerText = session.compileAnswer()
+            let segments = session.compileSegments()
 
             let categoryName = categories[question.category]?.name ?? String(question.category)
 
@@ -647,10 +699,17 @@ struct DailyQuestionView: View {
                 answeredDate: Date(),
                 answerText: answerText,
                 followUpQuestions: [],
-                source: .voice
+                source: .voice,
+                segments: segments
             )
 
-            try storageService.saveAnswer(answer)
+            let saved = try storageService.saveAnswerCommittingClips(
+                answer, recordingSessionID: session.recordingSessionID.uuidString
+            )
+
+            // Re-answer contract (KTD9): delete the prior recording as one explicit step.
+            let newClips = Set(saved.segments.compactMap(\.clipFilename))
+            storageService.deletePriorClips(priorClips, keeping: newClips)
 
             // Mark question answered
             if let result = RotationEngine.markAnswered(

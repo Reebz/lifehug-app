@@ -9,6 +9,11 @@ final class SessionState {
     var isRecording: Bool = false
     var draftTranscript: String = ""
 
+    /// Identifies this answer's recording session (KTD7). Keys the clip staging subdirectory
+    /// and is embedded in every clip filename, so it must survive a kill + restore or the
+    /// staged clips would be orphaned. A fresh id is minted per answer in `resetSession`.
+    private(set) var recordingSessionID = UUID()
+
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Session")
     private let fileManager = FileManager.default
 
@@ -17,8 +22,21 @@ final class SessionState {
 
     // MARK: - Conversation Management
 
-    func addTurn(role: ConversationTurn.Role, text: String) {
-        let turn = ConversationTurn(role: role, text: text, timestamp: Date())
+    func addTurn(
+        role: ConversationTurn.Role,
+        text: String,
+        clipFilename: String? = nil,
+        isVoice: Bool = false,
+        needsTranscription: Bool = false
+    ) {
+        let turn = ConversationTurn(
+            role: role,
+            text: text,
+            timestamp: Date(),
+            clipFilename: clipFilename,
+            isVoice: isVoice,
+            needsTranscription: needsTranscription
+        )
         conversationTurns.append(turn)
         scheduleAutoSave()
     }
@@ -27,6 +45,22 @@ final class SessionState {
     func compileAnswer() -> String {
         let userTurns = conversationTurns.filter { $0.role == .user }
         return userTurns.map(\.text).joined(separator: "\n\n")
+    }
+
+    /// Build the ordered segment list from user turns (KTD6). Segment order matches
+    /// `compileAnswer()` and the per-turn clip filenames' turn indices.
+    func compileSegments() -> [Answer.Segment] {
+        conversationTurns
+            .filter { $0.role == .user }
+            .map { turn in
+                Answer.Segment(
+                    text: turn.text,
+                    clipFilename: turn.clipFilename,
+                    source: turn.isVoice ? .voice : .text,
+                    isEdited: false,
+                    needsTranscription: turn.needsTranscription
+                )
+            }
     }
 
     /// Flush any pending auto-save immediately (no debounce).
@@ -45,6 +79,9 @@ final class SessionState {
         conversationTurns = []
         isRecording = false
         draftTranscript = ""
+        // Mint a fresh recording session so the next answer's clips get their own staging
+        // subdirectory and never collide with the answer just finished.
+        recordingSessionID = UUID()
         clearAutoSave()
     }
 
@@ -76,12 +113,22 @@ final class SessionState {
     /// Write session state to an encrypted file immediately.
     func autoSave() {
         guard currentQuestion != nil, !conversationTurns.isEmpty else { return }
-        let saveable = conversationTurns.map { SaveableTurn(role: $0.role == .user ? "user" : "assistant", text: $0.text, timestamp: $0.timestamp) }
+        let saveable = conversationTurns.map {
+            SaveableTurn(
+                role: $0.role == .user ? "user" : "assistant",
+                text: $0.text,
+                timestamp: $0.timestamp,
+                clipFilename: $0.clipFilename,
+                isVoice: $0.isVoice,
+                needsTranscription: $0.needsTranscription
+            )
+        }
         let payload = AutoSavePayload(
             questionID: currentQuestion?.id,
             questionText: currentQuestion?.text,
             questionCategory: currentQuestion.map { String($0.category) },
-            turns: saveable
+            turns: saveable,
+            recordingSessionID: recordingSessionID.uuidString
         )
         do {
             let data = try JSONEncoder().encode(payload)
@@ -110,7 +157,19 @@ final class SessionState {
             let data = try Data(contentsOf: url)
             let payload = try JSONDecoder().decode(AutoSavePayload.self, from: data)
             conversationTurns = payload.turns.map {
-                ConversationTurn(role: $0.role == "user" ? .user : .assistant, text: $0.text, timestamp: $0.timestamp)
+                ConversationTurn(
+                    role: $0.role == "user" ? .user : .assistant,
+                    text: $0.text,
+                    timestamp: $0.timestamp,
+                    clipFilename: $0.clipFilename,
+                    isVoice: $0.isVoice ?? false,
+                    needsTranscription: $0.needsTranscription ?? false
+                )
+            }
+            // Restore the recording session id so already-staged clips stay linked to the
+            // restored turns (KTD7). Absent in pre-feature payloads → keep the fresh id.
+            if let restored = payload.recordingSessionID, let uuid = UUID(uuidString: restored) {
+                recordingSessionID = uuid
             }
 
             // Restore question context if available
@@ -163,6 +222,10 @@ final class SessionState {
         let role: String
         let text: String
         let timestamp: Date
+        // Optional so pre-feature payloads (missing these keys) still decode (KTD7).
+        var clipFilename: String? = nil
+        var isVoice: Bool? = nil
+        var needsTranscription: Bool? = nil
     }
 
     private struct AutoSavePayload: Codable {
@@ -170,6 +233,7 @@ final class SessionState {
         let questionText: String?
         let questionCategory: String?
         let turns: [SaveableTurn]
+        var recordingSessionID: String? = nil
     }
 }
 
@@ -178,6 +242,13 @@ struct ConversationTurn: Identifiable {
     let role: Role
     let text: String
     let timestamp: Date
+    /// Committed/staged clip filename for a voice turn (KTD7); nil for typed turns and
+    /// capture failures. The in-memory `id` above is regenerated on restore and must never
+    /// key anything persistent — the clip reference is what survives a kill + restore.
+    var clipFilename: String? = nil
+    var isVoice: Bool = false
+    /// Audio was kept but the transcript came back empty/failed — recoverable later (R3).
+    var needsTranscription: Bool = false
 
     enum Role {
         case user

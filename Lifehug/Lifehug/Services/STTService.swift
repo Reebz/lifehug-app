@@ -74,6 +74,32 @@ final class STTService {
     /// one, so it cannot finish or nil a newer session's stream (P2-5).
     private var sessionID = 0
 
+    // MARK: - Clip Capture (U3)
+
+    /// Where the current turn's clip is staged (KTD7). Set by the pipeline before each mic
+    /// start; nil disables capture (typed turns, no-context sessions, simulator).
+    struct ClipContext: Sendable {
+        let stagingDirectory: URL
+        let clipFilename: String
+    }
+    var clipContext: ClipContext?
+
+    /// Result of the last teardown's clip write, read by the pipeline after the stream ends.
+    /// `lastCapturedClipFilename` is nil when nothing was captured; `lastCaptureFailed` is
+    /// true only when a real capture was attempted but the durability write failed.
+    private(set) var lastCapturedClipFilename: String?
+    private(set) var lastCaptureFailed: Bool = false
+
+    /// In-flight AAC encodes (off the teardown path). A save awaits these before committing
+    /// the staged clips (KTD2). Stateless `StorageService` for the durable writes.
+    private var pendingClipTasks: [Task<Void, Never>] = []
+    private let clipStorage = StorageService()
+
+    /// Whether to write a clip: a staging context exists and the buffer clears the floor.
+    nonisolated static func shouldCaptureClip(hasContext: Bool, sampleCount: Int) -> Bool {
+        hasContext && sampleCount >= AudioClipStore.minimumSamples
+    }
+
     // MARK: - Model Loading
 
     /// Download (with progress) and load the WhisperKit model, driving `asrState`.
@@ -192,6 +218,9 @@ final class STTService {
             logger.warning("startListening called while ASR not ready (state: \(String(describing: self.asrState)))")
             return AsyncStream<String> { $0.finish() }
         }
+        // Fresh clip-capture state for this recording; the teardown sets it.
+        lastCapturedClipFilename = nil
+        lastCaptureFailed = false
         #if targetEnvironment(simulator)
         return AsyncStream<String> { continuation in
             Task { @MainActor in
@@ -343,15 +372,28 @@ final class STTService {
         // stops growing before we read or purge it (idempotent).
         await ast.stopStreamTranscription()
 
-        // Authoritative final transcription: if streaming produced nothing but we
-        // captured a non-trivial buffer, transcribe the whole buffer once. Skip if a
-        // newer session has already taken over (the shared buffer is no longer ours).
+        // Clip capture + authoritative final transcription. Skip entirely if a newer
+        // session has already taken over (the shared buffer is no longer ours).
         if sessionID == self.sessionID {
-            await runFinalTranscriptionIfNeeded()
-
-            // Purge AFTER the tap has stopped and the final pass has read the buffer
-            // (ordering fix; no lock on the render thread — KTD6).
+            // Materialize the static buffer ONCE (KTD2). The clip write owns this copy and
+            // the empty-streaming final transcription reuses it, rather than re-reading the
+            // buffer. This ~11.5MB copy is now paid on every recorded turn, not just the
+            // rare empty-streaming path — the accepted cost of durable audio.
             nonisolated(unsafe) let processor = whisperPipe?.audioProcessor
+            let samples: [Float] = processor.map { Array($0.audioSamples) } ?? []
+
+            // Persist the clip synchronously (raw dump = the durability point) inside this
+            // guarded teardown window, before the purge and before stopAndWait() returns.
+            // AAC encoding runs off this path (see persistClipIfNeeded). A persist failure
+            // never blocks the purge or transcript yield — the segment is marked audio-failed.
+            persistClipIfNeeded(samples: samples)
+
+            // Authoritative final transcription reuses the same materialized buffer: if
+            // streaming produced nothing but we captured a non-trivial buffer, transcribe it.
+            await runFinalTranscription(using: samples)
+
+            // Purge AFTER the tap has stopped and the final pass + clip write have read the
+            // buffer (ordering fix; no lock on the render thread — KTD6).
             processor?.purgeAudioSamples(keepingLast: 0)
         }
 
@@ -376,22 +418,18 @@ final class STTService {
     /// If the streaming pass yielded no text but enough audio was captured, run a
     /// final full-buffer transcription and adopt its text. This is the safety net
     /// that makes VAD gating non-fatal for short/soft/pause-leading answers (P1-1).
-    private func runFinalTranscriptionIfNeeded() async {
+    /// Reuses the buffer already materialized for the clip write (KTD2) — no re-read.
+    private func runFinalTranscription(using samples: [Float]) async {
         let partialEmpty = partialTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
         guard let pipe = whisperPipe else { return }
-        nonisolated(unsafe) let readProcessor = pipe.audioProcessor
-        // Gate on the O(1) count first — materializing the buffer (~11.5 MB for a
-        // full 3-minute recording) is deferred to the rare empty-streaming path.
-        // The tap is already stopped, so the buffer is static between these reads.
         guard Self.shouldRunFinalTranscription(
             partialIsEmpty: partialEmpty,
-            sampleCount: readProcessor.audioSamples.count
+            sampleCount: samples.count
         ) else {
             return
         }
-        let samples = Array(readProcessor.audioSamples)
 
         // WhisperKit is not Sendable; mirror the existing nonisolated(unsafe) crossing.
         // Bind the [TranscriptionResult] overload explicitly (KTD3) via the annotation.
@@ -406,6 +444,85 @@ final class STTService {
             partialTranscript = text
             print("[STT] DIAG: Final full-buffer transcription recovered '\(text.prefix(40))'")
         }
+    }
+
+    /// Persist the just-captured turn as a clip (KTD2/KTD3). Synchronously dumps the raw
+    /// samples to the session staging area — the durability point — inside the teardown
+    /// window, then kicks off the AAC encode off the teardown path. Sets
+    /// `lastCapturedClipFilename` (nil when nothing captured) and `lastCaptureFailed`. Never
+    /// throws: a persist failure must not block the purge or the transcript yield.
+    private func persistClipIfNeeded(samples: [Float]) {
+        guard let ctx = clipContext,
+              Self.shouldCaptureClip(hasContext: true, sampleCount: samples.count) else { return }
+
+        let rawURL = ctx.stagingDirectory.appendingPathComponent(ctx.clipFilename + ".raw")
+        let finalURL = ctx.stagingDirectory.appendingPathComponent(ctx.clipFilename)
+        let excludeBackup = !StorageService.iCloudBackupEnabled
+        do {
+            try FileManager.default.createDirectory(at: ctx.stagingDirectory, withIntermediateDirectories: true)
+            try clipStorage.durableWrite(
+                AudioClipStore.rawDumpData(samples),
+                to: rawURL,
+                protection: .completeUnlessOpen,
+                excludeFromBackup: excludeBackup
+            )
+            lastCapturedClipFilename = ctx.clipFilename
+        } catch {
+            lastCaptureFailed = true
+            logger.error("Clip raw dump failed: \(error.localizedDescription)")
+            return
+        }
+
+        // Off the teardown path: encode AAC, atomically replace the raw dump with the .m4a.
+        // A fresh (stateless) StorageService inside the detached task keeps it Sendable-clean.
+        // On encode failure the raw dump is intentionally LEFT in staging; `commitClips`
+        // recovers it by re-encoding at save time, so the recording survives (KTD2).
+        let task = Task.detached(priority: .utility) {
+            let storage = StorageService()
+            let encodeTemp = ctx.stagingDirectory.appendingPathComponent(".encode-\(ctx.clipFilename).tmp")
+            do {
+                try AudioClipStore.encode(samples: samples, to: encodeTemp)
+                try storage.durablePlace(
+                    tempFile: encodeTemp,
+                    at: finalURL,
+                    protection: .completeUnlessOpen,
+                    excludeFromBackup: excludeBackup
+                )
+                try? AudioClipStore.deleteClip(at: rawURL)
+            } catch {
+                try? FileManager.default.removeItem(at: encodeTemp)
+            }
+        }
+        pendingClipTasks.append(task)
+    }
+
+    /// Re-transcribe a clip from disk for empty-transcript recovery (U5/KTD10). Decodes the
+    /// clip and runs the SAME `transcribe(audioArray:)` overload and sanitize/join as the
+    /// live final-transcription path, so recovered text is indistinguishable from live text.
+    /// Device-only (WhisperKit); returns nil on the simulator or when the model isn't loaded.
+    func transcribeClip(atPath path: String) async -> String? {
+        #if targetEnvironment(simulator)
+        return nil
+        #else
+        guard let pipe = whisperPipe else { return nil }
+        let samples = (try? AudioClipStore.decodeSamples(from: URL(fileURLWithPath: path))) ?? []
+        guard samples.count >= Self.finalTranscriptionMinSamples else { return nil }
+        nonisolated(unsafe) let p = pipe
+        let results: [TranscriptionResult]? = try? await p.transcribe(
+            audioArray: samples,
+            decodeOptions: DecodingOptions(language: "en", skipSpecialTokens: true, withoutTimestamps: true)
+        )
+        guard let results else { return nil }
+        return Self.sanitizeTranscript(Self.joinTranscriptionText(results.map(\.text)))
+        #endif
+    }
+
+    /// Await all in-flight AAC encodes so a save can safely commit the staged clips (KTD2).
+    /// Off the hot path — called at save time, not during recording.
+    func awaitPendingClipWrites() async {
+        let tasks = pendingClipTasks
+        pendingClipTasks.removeAll()
+        for t in tasks { await t.value }
     }
 
     /// Whether a final full-buffer transcription should run: only when streaming
@@ -426,10 +543,26 @@ final class STTService {
     /// annotations, which are real word tokens and survive `skipSpecialTokens`.
     nonisolated static func sanitizeTranscript(_ raw: String) -> String {
         var s = raw
-        s = s.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: " ", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"[\(\[][^\)\]]*[\)\]]"#, with: " ", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        s = Self.replacingMatches(in: s, of: Self.specialTokenRegex)
+        s = Self.replacingMatches(in: s, of: Self.annotationRegex)
+        s = Self.replacingMatches(in: s, of: Self.whitespaceRegex)
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Precompiled sanitize patterns. sanitizeTranscript runs on EVERY transcriber
+    /// state change while recording, and `replacingOccurrences(options: .regularExpression)`
+    /// recompiles its pattern on each call — three compiles per callback on the MainActor.
+    /// NSRegularExpression is immutable and documented thread-safe; `nonisolated(unsafe)`
+    /// is the project's standard crossing for such types.
+    nonisolated(unsafe) private static let specialTokenRegex =
+        try! NSRegularExpression(pattern: #"<\|[^|]*\|>"#)
+    nonisolated(unsafe) private static let annotationRegex =
+        try! NSRegularExpression(pattern: #"[\(\[][^\)\]]*[\)\]]"#)
+    nonisolated(unsafe) private static let whitespaceRegex =
+        try! NSRegularExpression(pattern: #"\s+"#)
+
+    nonisolated private static func replacingMatches(in s: String, of regex: NSRegularExpression) -> String {
+        regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: " ")
     }
 
     /// Whether the recording has exceeded the wall-clock cap (no live-buffer read).

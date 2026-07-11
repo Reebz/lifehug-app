@@ -162,9 +162,23 @@ final class TTSService {
             logger.info("Memory normalized — cleared system-TTS degradation latch")
         }
         if KokoroManager.isEnabled, kokoroManager?.isReady == false {
+            // Cooldown: this runs at the start of every conversation turn, and each
+            // loadEngine() attempt on a persistent non-memory failure is a fresh
+            // (180s-bounded) download/init. Throttle so a broken Kokoro doesn't cost
+            // every turn; the latch-clear above stays unthrottled.
+            let now = Date()
+            if let last = lastKokoroRecoveryAttempt,
+               now.timeIntervalSince(last) < Self.kokoroRecoveryCooldown {
+                return
+            }
+            lastKokoroRecoveryAttempt = now
             Task { [kokoroManager] in await kokoroManager?.loadEngine() }
         }
     }
+
+    /// Last recovery-driven loadEngine trigger; see cooldown note above.
+    private var lastKokoroRecoveryAttempt: Date?
+    private static let kokoroRecoveryCooldown: TimeInterval = 60
 
     /// Unload the Kokoro model weights (~80MB) to reclaim memory.
     func unloadKokoroModel() {

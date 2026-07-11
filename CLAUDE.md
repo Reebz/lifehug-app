@@ -40,5 +40,5 @@ xcodebuild -exportArchive -archivePath /tmp/Lifehug.xcarchive -exportOptionsPlis
 
 - Release builds have stricter Swift 6 concurrency checking than Debug — always verify with archive before shipping
 - Non-Sendable Apple framework types (AVAudioPlayerNode, AVAudioPCMBuffer, AVSpeechUtterance) crossing `@Sendable`/`sending` boundaries require `nonisolated(unsafe)` wrappers
-- STTService's `nonisolated(unsafe) sharedRequest` is intentional — DO NOT add locks to the audio render thread (causes glitches/priority inversion)
+- STTService's `nonisolated(unsafe)` WhisperKit crossings (the `audioProcessor`/pipe bindings) are intentional — DO NOT add locks to the audio render thread (causes glitches/priority inversion)
 - Task group `addTask` closures are `sending` — cannot capture MainActor-isolated self even with `@MainActor` annotation

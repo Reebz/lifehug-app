@@ -53,6 +53,16 @@ struct LifehugApp: App {
                         }
                     }()
                     _ = await (asrLoad, kokoroLoad)
+
+                    // Launch maintenance: assert clip/answer directory protection, reconcile
+                    // orphaned clip storage (U7), then rebuild and drain the empty-transcript
+                    // retry queue once ASR is ready (U5). Off the UI-critical path.
+                    let storage = StorageService()
+                    try? storage.setupDirectories()
+                    storage.reconcileClipStorage(protectingStagingSession: sessionState.recordingSessionID.uuidString)
+                    let retryCoordinator = TranscriptionRetryCoordinator(storage: storage, stt: sttService)
+                    retryCoordinator.syncFromAnswers()
+                    await retryCoordinator.drainPending()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     modelState.handleScenePhaseChange(newPhase)

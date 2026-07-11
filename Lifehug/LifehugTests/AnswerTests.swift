@@ -193,6 +193,160 @@ struct AnswerTests {
         #expect(parsed!.answerText.contains("(100%)"))
     }
 
+    @Test("Answer body containing a --- horizontal rule survives roundtrip")
+    func horizontalRuleInBodyRoundtrip() {
+        // A life-story answer can legitimately use "---" as a divider on its own line. The
+        // parser must not read that interior rule as the body's closing separator and drop
+        // everything after it. Trailing follow-ups here also verify the LAST "---" (not the
+        // interior one) is chosen as the closing separator.
+        let bodyWithRule = """
+        Before the rule.
+
+        ---
+
+        After the rule.
+        """
+        let answer = Answer(
+            questionID: "A3",
+            questionText: "Tell me a two-part story.",
+            categoryLetter: "A",
+            categoryName: "Origins",
+            passNumber: 1,
+            askedDate: makeDate("2026-03-15"),
+            answeredDate: makeDate("2026-03-15"),
+            answerText: bodyWithRule,
+            followUpQuestions: [
+                Answer.FollowUpQuestion(id: "A6", text: "What changed between the two parts?")
+            ],
+            source: .voice
+        )
+        let parsed = Answer.fromMarkdown(answer.toMarkdown())
+        #expect(parsed != nil)
+        #expect(parsed!.answerText == bodyWithRule)
+        #expect(parsed!.followUpQuestions.count == 1)
+    }
+
+    @Test("Answer body ending in a --- rule with no trailing sections survives roundtrip")
+    func horizontalRuleAtBodyEndRoundtrip() {
+        let bodyEndingInRule = """
+        Just a thought.
+
+        ---
+        """
+        let answer = Answer(
+            questionID: "B2",
+            questionText: "Q",
+            categoryLetter: "B",
+            categoryName: "Becoming",
+            passNumber: 1,
+            askedDate: makeDate("2026-03-16"),
+            answeredDate: makeDate("2026-03-16"),
+            answerText: bodyEndingInRule,
+            followUpQuestions: [],
+            source: .text
+        )
+        let parsed = Answer.fromMarkdown(answer.toMarkdown())
+        #expect(parsed != nil)
+        #expect(parsed!.answerText == bodyEndingInRule)
+    }
+
+    // MARK: - Voice Clip Segments (U4)
+
+    @Test("Segments round-trip through markdown with all flags")
+    func segmentsRoundtrip() {
+        let clip0 = "A1-\(UUID().uuidString)-0.m4a"
+        let clip2 = "A1-\(UUID().uuidString)-2.m4a"
+        let clip3 = "A1-\(UUID().uuidString)-3.m4a"
+        let segments: [Answer.Segment] = [
+            .init(text: "First spoken turn.", clipFilename: clip0, source: .voice),
+            .init(text: "A typed addition.", clipFilename: nil, source: .text),
+            .init(text: "", clipFilename: clip2, source: .voice, needsTranscription: true),
+            .init(text: "Edited over time.", clipFilename: clip3, source: .voice, isEdited: true),
+        ]
+        let answer = Answer(
+            questionID: "A1", questionText: "Q", categoryLetter: "A", categoryName: "Origins",
+            passNumber: 1, askedDate: makeDate("2026-03-01"), answeredDate: makeDate("2026-03-01"),
+            answerText: "First spoken turn.\n\nA typed addition.\n\nEdited over time.",
+            followUpQuestions: [], source: .voice, segments: segments
+        )
+
+        let md = answer.toMarkdown()
+        #expect(md.contains("## Voice Clips"))
+
+        let parsed = Answer.fromMarkdown(md)
+        #expect(parsed != nil)
+        #expect(parsed!.segments == segments)
+    }
+
+    @Test("Pre-feature answer parses with no segments and stays intact")
+    func preFeatureNoSegments() {
+        let legacy = """
+        # Question A1: What's your earliest memory?
+        **Category:** A (Origins) | **Pass:** 1
+        **Asked:** 2026-03-01 | **Answered:** 2026-03-01
+
+        ---
+
+        I remember the garden.
+
+        ---
+
+        **Source:** voice message (transcribed)
+        """
+        let parsed = Answer.fromMarkdown(legacy)
+        #expect(parsed != nil)
+        #expect(parsed!.segments.isEmpty)
+        #expect(parsed!.answerText == "I remember the garden.")
+        #expect(parsed!.source == .voice)
+    }
+
+    @Test("Voice Clips section does not truncate the answer body")
+    func segmentSectionDoesNotTruncateBody() {
+        let segments: [Answer.Segment] = [
+            .init(text: "Body sentence one.", clipFilename: "A1-\(UUID().uuidString)-0.m4a", source: .voice)
+        ]
+        let answer = Answer(
+            questionID: "A1", questionText: "Q", categoryLetter: "A", categoryName: "Origins",
+            passNumber: 1, askedDate: makeDate("2026-03-01"), answeredDate: makeDate("2026-03-01"),
+            answerText: "Body sentence one.", followUpQuestions: [], source: .voice, segments: segments
+        )
+        let parsed = Answer.fromMarkdown(answer.toMarkdown())
+        #expect(parsed!.answerText == "Body sentence one.")
+    }
+
+    @Test("Multi-line segment text with a backslash survives escaping")
+    func multilineSegmentText() {
+        let text = "Line one.\nLine two.\n\nParagraph two with a backslash \\ and more."
+        let segments: [Answer.Segment] = [
+            .init(text: text, clipFilename: "A1-\(UUID().uuidString)-0.m4a", source: .voice)
+        ]
+        let answer = Answer(
+            questionID: "A1", questionText: "Q", categoryLetter: "A", categoryName: "Origins",
+            passNumber: 1, askedDate: makeDate("2026-03-01"), answeredDate: makeDate("2026-03-01"),
+            answerText: text, followUpQuestions: [], source: .voice, segments: segments
+        )
+        let parsed = Answer.fromMarkdown(answer.toMarkdown())
+        #expect(parsed!.segments.count == 1)
+        #expect(parsed!.segments[0].text == text)
+    }
+
+    @Test("Typed-only answer writes no Voice Clips section")
+    func typedOnlyNoSection() {
+        let segments: [Answer.Segment] = [
+            .init(text: "Just typed.", clipFilename: nil, source: .text)
+        ]
+        let answer = Answer(
+            questionID: "B1", questionText: "Q", categoryLetter: "B", categoryName: "Becoming",
+            passNumber: 1, askedDate: makeDate("2026-03-01"), answeredDate: makeDate("2026-03-01"),
+            answerText: "Just typed.", followUpQuestions: [], source: .text, segments: segments
+        )
+        let md = answer.toMarkdown()
+        #expect(!md.contains("## Voice Clips"))
+        let parsed = Answer.fromMarkdown(md)
+        #expect(parsed!.segments.isEmpty)
+        #expect(parsed!.answerText == "Just typed.")
+    }
+
     // MARK: - Helpers
 
     private func makeDate(_ string: String) -> Date {

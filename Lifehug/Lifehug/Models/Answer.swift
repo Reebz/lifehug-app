@@ -11,15 +11,45 @@ struct Answer {
     let answerText: String
     let followUpQuestions: [FollowUpQuestion]
     let source: AnswerSource
+    /// Ordered per-turn segments (KTD6): the audio-linked index over the answer. Absent for
+    /// pre-feature answers (lenient parse defaults to `[]`); the whole-answer `source` above
+    /// stays for compatibility, but per-segment `source` is authoritative for affordances.
+    var segments: [Segment] = []
 
     enum AnswerSource {
         case text
         case voice
     }
 
+    /// One spoken or typed turn. `text` is the segment's original transcript/typed text (the
+    /// facing-page and provenance source); the editable answer body lives in `answerText`.
+    struct Segment: Equatable {
+        var text: String
+        var clipFilename: String?          // committed clip name, or nil (typed / capture failed)
+        var source: SegmentSource
+        var isEdited: Bool = false         // body text diverged from this original (KTD8)
+        var needsTranscription: Bool = false  // audio kept but transcript empty/failed (R3)
+
+        enum SegmentSource: String {
+            case voice
+            case text
+        }
+    }
+
     struct FollowUpQuestion {
         let id: String
         let text: String
+    }
+
+    /// A copy with a replaced segment list (all other fields intact). Used by the edit path
+    /// and launch reconciliation to rewrite segments without touching the rest of the answer.
+    func replacingSegments(_ newSegments: [Segment]) -> Answer {
+        Answer(
+            questionID: questionID, questionText: questionText, categoryLetter: categoryLetter,
+            categoryName: categoryName, passNumber: passNumber, askedDate: askedDate,
+            answeredDate: answeredDate, answerText: answerText, followUpQuestions: followUpQuestions,
+            source: source, segments: newSegments
+        )
     }
 
     func toMarkdown() -> String {
@@ -50,7 +80,57 @@ struct Answer {
             md += "\n**Source:** voice message (transcribed)\n"
         }
 
+        // Voice Clips index (KTD6): written only when audio is involved, so pre-feature and
+        // purely-typed answers stay unchanged. One line per segment, text escaped so a
+        // multi-line turn still occupies exactly one line. This section comes last (after
+        // the second `---`), so old readers and the body parser ignore it.
+        if segments.contains(where: { $0.source == .voice || $0.clipFilename != nil }) {
+            md += "\n## Voice Clips\n"
+            for seg in segments {
+                let clip = seg.clipFilename ?? "none"
+                md += "- [\(seg.source.rawValue)] clip=\(clip) edited=\(seg.isEdited ? 1 : 0) needs=\(seg.needsTranscription ? 1 : 0) :: \(Self.escapeSegmentText(seg.text))\n"
+            }
+        }
+
         return md
+    }
+
+    /// Escape a segment's text to a single line: backslash first, then newlines.
+    private static func escapeSegmentText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+    }
+
+    /// Inverse of `escapeSegmentText` — a left-to-right unescape so `\\` and `\n` don't
+    /// interfere (a naive two-pass replace would mangle a literal backslash-n).
+    private static func unescapeSegmentText(_ text: String) -> String {
+        var result = ""
+        var iterator = text.makeIterator()
+        while let c = iterator.next() {
+            guard c == "\\" else { result.append(c); continue }
+            switch iterator.next() {
+            case "n": result.append("\n")
+            case "\\": result.append("\\")
+            case let other?: result.append(other)
+            case nil: result.append("\\")
+            }
+        }
+        return result
+    }
+
+    private static func parseSegmentLine(_ line: String) -> Segment? {
+        guard let m = line.firstMatch(
+            of: /^- \[(voice|text)\] clip=(\S+) edited=([01]) needs=([01]) :: (.*)$/
+        ) else { return nil }
+        let source: Segment.SegmentSource = m.1 == "voice" ? .voice : .text
+        let clip = String(m.2) == "none" ? nil : String(m.2)
+        return Segment(
+            text: unescapeSegmentText(String(m.5)),
+            clipFilename: clip,
+            source: source,
+            isEdited: m.3 == "1",
+            needsTranscription: m.4 == "1"
+        )
     }
 
     static func fromMarkdown(_ text: String) -> Answer? {
@@ -94,26 +174,34 @@ struct Answer {
             answeredDate = Date()
         }
 
-        // Parse answer text between --- markers
-        var answerLines: [String] = []
-        var inAnswer = false
-        var separatorCount = 0
+        // Parse the answer body, written raw between two "---" separators. The body may
+        // itself contain a line equal to "---" (a Markdown horizontal rule), so stopping at
+        // the *first* interior separator would drop the rest of the body on read — and then
+        // on the next save. The trailing sections written after the body (Follow-up
+        // Questions, Source, Voice Clips) never emit a bare "---" line, so the LAST "---" is
+        // the true closing separator. Read-side only: the written format is unchanged, so
+        // existing files and the desktop tool stay compatible.
         let contentLines = lines.count > 3 ? Array(lines.dropFirst(3)) : []
-        for line in contentLines {
-            if line.trimmingCharacters(in: .whitespaces) == "---" {
-                separatorCount += 1
-                if separatorCount == 1 {
-                    inAnswer = true
-                    continue
-                } else if separatorCount == 2 {
-                    break
-                }
-            }
-            if inAnswer {
-                answerLines.append(line)
-            }
+        let separatorIndices = contentLines.indices.filter {
+            contentLines[$0].trimmingCharacters(in: .whitespaces) == "---"
         }
-        let answerText = answerLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let bodyRange: Range<Int>?
+        if let open = separatorIndices.first, let close = separatorIndices.last, close > open {
+            bodyRange = (open + 1)..<close
+        } else if let open = separatorIndices.first {
+            // Only one separator (malformed/truncated file): keep the old lenient behavior of
+            // taking everything after it as the body.
+            bodyRange = (open + 1)..<contentLines.count
+        } else {
+            bodyRange = nil
+        }
+        let answerText: String
+        if let bodyRange {
+            answerText = contentLines[bodyRange].joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            answerText = ""
+        }
 
         // Parse follow-up questions
         var followUps: [FollowUpQuestion] = []
@@ -130,6 +218,15 @@ struct Answer {
 
         let source: AnswerSource = text.contains("**Source:** voice message") ? .voice : .text
 
+        // Parse the Voice Clips index. Absent in pre-feature files → empty segments (KTD6).
+        var segments: [Segment] = []
+        var inClips = false
+        for line in lines {
+            // Exact header match: a segment's own text could contain "## Voice Clips".
+            if line.trimmingCharacters(in: .whitespaces) == "## Voice Clips" { inClips = true; continue }
+            if inClips, let seg = parseSegmentLine(line) { segments.append(seg) }
+        }
+
         return Answer(
             questionID: questionID,
             questionText: questionText,
@@ -140,7 +237,8 @@ struct Answer {
             answeredDate: answeredDate,
             answerText: answerText,
             followUpQuestions: followUps,
-            source: source
+            source: source,
+            segments: segments
         )
     }
 }

@@ -28,11 +28,19 @@ final class AudioSessionController {
 
     /// Whether the category+activation is currently asserted. Reset by `invalidate()`
     /// so the next record phase re-asserts unconditionally (e.g. after an interruption).
-    private var isConfigured = false
+    /// `private(set)` so tests can observe the latch.
+    private(set) var isConfigured = false
+
+    /// Monotonic record-phase epoch, bumped on EVERY beginRecordPhase() call (latched
+    /// or not). `end()` captures it before its teardown await and skips deactivation if
+    /// a newer record phase claimed the session meanwhile — an exited pipeline's slow
+    /// teardown must never setActive(false) under a successor's live recording.
+    private(set) var recordEpoch = 0
 
     /// Ensure the session is `.playAndRecord` and active for recording. Idempotent —
     /// never re-sets the category while already configured (avoids thrashing WhisperKit).
     func beginRecordPhase() {
+        recordEpoch += 1
         guard !isConfigured else { return }
         let session = AVAudioSession.sharedInstance()
         do {
@@ -60,7 +68,14 @@ final class AudioSessionController {
     /// the STT engine has fully torn down, so deactivation never races a live recording
     /// engine (fixes the `IsBusy` throw, P2-3). `teardown` is the awaitable STT stop.
     func end(afterTeardown teardown: () async -> Void) async {
+        let epoch = recordEpoch
         await teardown()
+        // A newer record phase started while we awaited the teardown — the session now
+        // belongs to that successor; deactivating would kill its live recording.
+        guard epoch == recordEpoch else {
+            logger.info("Audio session deactivation skipped — newer record phase active")
+            return
+        }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setActive(false, options: .notifyOthersOnDeactivation)

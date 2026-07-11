@@ -21,6 +21,8 @@ struct SettingsView: View {
     @State private var exportAlertMessage = ""
     @State private var modelSizeMB: String = "---"
     @State private var storageSizeMB: String = "---"
+    @State private var clipStorageMB: String = "---"
+    @State private var orphanClipCount: Int = 0
 
     private let storage = StorageService()
     private let logger = Logger(subsystem: "com.lifehug.app", category: "Settings")
@@ -399,6 +401,26 @@ struct SettingsView: View {
             }
             .listRowBackground(Color.white)
 
+            HStack {
+                Text("Voice Recordings")
+                    .foregroundStyle(Theme.warmCharcoal)
+                Spacer()
+                Text(clipStorageMB)
+                    .foregroundStyle(Theme.walnut)
+            }
+            .listRowBackground(Color.white)
+
+            if orphanClipCount > 0 {
+                HStack {
+                    Text("Unlinked Recordings")
+                        .foregroundStyle(Theme.warmCharcoal)
+                    Spacer()
+                    Text("\(orphanClipCount)")
+                        .foregroundStyle(Theme.walnut)
+                }
+                .listRowBackground(Color.white)
+            }
+
             if case .notDownloaded = modelState.status {
                 Button {
                     modelState.triggerDownload()
@@ -529,24 +551,34 @@ struct SettingsView: View {
     }
 
     private func computeStorageSizes() {
-        // Model size
-        let modelsDir = storage.modelsDirectory
-        modelSizeMB = formattedDirectorySize(modelsDir)
+        modelSizeMB = Self.formattedDirectorySize(storage.modelsDirectory)
+        storageSizeMB = Self.formattedDirectorySize(storage.answersDirectory)
 
-        // Answers size
-        let answersDir = storage.answersDirectory
-        storageSizeMB = formattedDirectorySize(answersDir)
+        // Clip size + orphan count off the main actor (U8) — the clips directory can grow
+        // large, and an on-main allocated-size enumeration would hitch the settings screen.
+        let clipsDir = storage.clipsDirectory
+        Task {
+            let (size, orphans) = await Task.detached {
+                (Self.formattedDirectorySize(clipsDir), StorageService().clipStorageReport().orphanedClips)
+            }.value
+            clipStorageMB = size
+            orphanClipCount = orphans
+        }
     }
 
-    private func formattedDirectorySize(_ url: URL) -> String {
+    /// Allocated on-disk size of a directory tree, formatted. `nonisolated static` so it can
+    /// run off the main actor (U8).
+    nonisolated static func formattedDirectorySize(_ url: URL) -> String {
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else {
+        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .fileSizeKey]) else {
             return "0 MB"
         }
         var totalSize: Int64 = 0
         for case let fileURL as URL in enumerator {
-            if let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
-               let size = values.fileSize {
+            let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileSizeKey])
+            if let allocated = values?.totalFileAllocatedSize {
+                totalSize += Int64(allocated)
+            } else if let size = values?.fileSize {
                 totalSize += Int64(size)
             }
         }
@@ -617,6 +649,13 @@ struct SettingsView: View {
         if let files = try? fm.contentsOfDirectory(at: storage.answersDirectory, includingPropertiesForKeys: nil) {
             for file in files { try? fm.removeItem(at: file) }
         }
+
+        // Delete voice recordings, staging, and the transcription retry queue
+        if let clips = try? fm.contentsOfDirectory(at: storage.clipsDirectory, includingPropertiesForKeys: nil) {
+            for file in clips { try? fm.removeItem(at: file) }
+        }
+        try? fm.removeItem(at: storage.clipsStagingDirectory)
+        try? fm.removeItem(at: TranscriptionRetryStore(storage: storage).queueURL)
 
         // Delete config
         try? fm.removeItem(at: storage.configURL)

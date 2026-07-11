@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ideation: What to Work on Next — Lifehug</title>
+<style>
+:root{--cream:#faf6ef;--card:#fffdf8;--walnut:#5b4636;--charcoal:#33291f;--terracotta:#c96f4a;--terra-soft:#f7e8e0;--sage:#6f7f5c;--sage-soft:#eef1e6;--amber:#b98a2e;--amber-soft:#f8efdc;--rose:#b05d5d;--rose-soft:#f6e5e5;--muted:#8a7a68;--line:#e6ddd0;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cream);color:var(--charcoal);font:16px/1.6 Georgia,"Times New Roman",serif}
+.wrap{max-width:900px;margin-inline:auto;padding:2.5rem 1.25rem 4rem}
+p,li,dd{max-width:70ch}
+h1{font-size:1.9rem;line-height:1.25;margin:.2rem 0 .4rem}
+h2{font-size:1.35rem;margin:2.6rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.35rem}
+h3{font-size:1.12rem;margin:0 0 .35rem}
+.eyebrow{font:600 .72rem/1 -apple-system,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--terracotta)}
+.meta{font:.85rem/1.6 -apple-system,system-ui,sans-serif;color:var(--muted);margin-bottom:1.6rem}
+.meta code{font-family:var(--mono);font-size:.82rem}
+.stats{display:flex;gap:.75rem;flex-wrap:wrap;margin:1.2rem 0 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.55rem .9rem;font:.8rem/1.35 -apple-system,system-ui,sans-serif;color:var(--walnut)}
+.stat b{display:block;font-size:1.15rem;color:var(--charcoal)}
+.jump{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.9rem 1.1rem;font-family:-apple-system,system-ui,sans-serif;font-size:.9rem}
+.jump ol{margin:.3rem 0 0;padding-left:1.4rem}
+.jump a{color:var(--walnut)}
+article.idea{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.3rem 1.4rem;margin:1.1rem 0}
+.chips{display:flex;gap:.5rem;flex-wrap:wrap;margin:.15rem 0 .8rem;font-family:-apple-system,system-ui,sans-serif}
+.chip{border-radius:999px;padding:.18rem .7rem;font-size:.72rem;font-weight:600;letter-spacing:.03em}
+.chip.rank{background:var(--terracotta);color:#fff}
+.chip.conf-h{background:var(--sage-soft);color:var(--sage)}
+.chip.conf-m{background:var(--amber-soft);color:var(--amber)}
+.chip.cx{background:var(--terra-soft);color:var(--terracotta)}
+.chip.frames{background:#efe9df;color:var(--walnut)}
+dl.fields{margin:.6rem 0 0}
+dl.fields dt{font:600 .7rem/1 -apple-system,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:.75rem}
+dl.fields dd{margin:.25rem 0 0}
+dl.fields dd code{font-family:var(--mono);font-size:.84rem;background:#f3ede2;padding:.05rem .3rem;border-radius:4px}
+.basis-tag{font:700 .74rem/1 var(--mono);color:var(--terracotta)}
+figure{margin:1rem 0 .2rem;overflow-x:auto}
+figcaption{font:.78rem/1.5 -apple-system,system-ui,sans-serif;color:var(--muted);margin-top:.35rem}
+table{border-collapse:collapse;width:100%;font-family:-apple-system,system-ui,sans-serif;font-size:.86rem}
+th{text-align:left;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line);padding:.5rem .6rem}
+td{border-bottom:1px solid var(--line);padding:.55rem .6rem;vertical-align:top}
+td:first-child{white-space:nowrap;font-weight:600;color:var(--walnut)}
+.callout{border-radius:12px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.95rem}
+.callout.sage{background:var(--sage-soft)}
+.callout.amber{background:var(--amber-soft)}
+.callout .eyebrow{display:block;margin-bottom:.3rem}
+.callout.sage .eyebrow{color:var(--sage)}
+.callout.amber .eyebrow{color:var(--amber)}
+footer.composition-signal{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);font:.78rem/1.5 -apple-system,system-ui,sans-serif;color:var(--muted)}
+svg text{font-family:-apple-system,system-ui,sans-serif}
+</style>
+</head>
+<body><div class="wrap">
+
+<span class="eyebrow">Ideation · Lifehug</span>
+<h1>What to Work on Next</h1>
+<div class="meta">
+Date: <time datetime="2026-07-11">2026-07-11</time> · Topic: <code>open-ideation</code> · Mode: repo-grounded (surprise-me — no user focus; agents chose subjects from the repo, learnings, and market research)
+<div class="stats">
+<span class="stat"><b>46</b> raw ideas, 6 frames</span>
+<span class="stat"><b>26</b> after merge</span>
+<span class="stat"><b>7</b> survivors</span>
+<span class="stat"><b>19/26</b> verified sound</span>
+</div>
+</div>
+
+<h2 id="grounding-context">Grounding Context</h2>
+<p><strong>Codebase Context.</strong> Lifehug is an iOS 18+ / Swift 6 memoir app: users answer daily reflective questions by voice; everything runs on-device (WhisperKit STT &rarr; MLX LLM interviewer &rarr; Kokoro CoreML TTS), with a 3-pass ChapterGenerator turning answers into memoir prose. The last 30 commits are ~90% voice-pipeline reliability work; build 13 shipped 2026-07-10; an iPhone 17 Pro device pass (U14) is still owed and gates three latency/memory optimizations. Known pressure points: the MLX LLM balloons 300MB&rarr;2.3GB under load and contends with Kokoro + the WhisperKit tap on 6GB devices; model download verification is a comment, not a check; a dormant Python question-generation system sits at the repo root.</p>
+<p><strong>Market research (high value).</strong> Verified whitespace: no competitor combines (a) fully on-device/offline processing, (b) a warm conversational AI interviewer with live follow-ups, and (c) memoir-quality prose chapters — StoryWorth is verbatim-only, Remento's AI rewrite draws the category's top complaint ("doesn't feel like their real voice"), Storii is phone-call capture, HereAfter is a queryable avatar archive, Rosebud is cloud-based despite privacy marketing. ~87% of journaling-app users quit within 7 days; question rotation already solves blank-page paralysis, but "no ongoing value when life is calm" is undesigned-against. StoryCorps oral-history practice: tangents are where the real material lives.</p>
+<p><strong>Session context.</strong> A performance review earlier today applied 10 fixes to the working tree (uncommitted) and left 3 owed design findings (timeout enforcement, WhisperKit load bound, STT teardown await). Ideas below do not re-propose that work.</p>
+
+<h2 id="topic-axes">Topic Axes</h2>
+<p>Decomposition skipped — surprise-me mode.</p>
+
+<h2 id="ranked-ideas">Ranked Ideas</h2>
+<div class="jump">
+<span class="eyebrow">Jump to</span>
+<ol>
+<li><a href="#i1">The Flight Recorder — on-device pipeline observability</a></li>
+<li><a href="#i2">Keep the Voice — the recording is the record</a></li>
+<li><a href="#i3">Verbatim Provenance — thread their words through the pipeline</a></li>
+<li><a href="#i4">Instrumented Latency — backchannel + first-sentence speech</a></li>
+<li><a href="#i5">The Humane Interviewer — chase tangents, know when to stop</a></li>
+<li><a href="#i6">Adaptive LLM Tier — step down before the jetsam cliff</a></li>
+<li><a href="#i7">Mid-Project Chapter Payoff — value before the book is done</a></li>
+</ol>
+</div>
+
+<article class="idea" id="i1">
+<h3>1. The Flight Recorder — on-device pipeline observability</h3>
+<div class="chips"><span class="chip rank">Top pick</span><span class="chip conf-h">Confidence 85%</span><span class="chip cx">Complexity Medium</span><span class="chip frames">4 frames converged</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>A small in-memory ring buffer continuously records every <code>PipelineState</code> transition, phase timing, and memory watermark, and persists to a local file only when an anomaly fires (empty transcript, hang, near-jetsam) — aviation's black-box pattern. A debug panel exposes the three metrics that gate everything: sentence-to-audio latency, empty-transcript rate, and memory under concurrent inference. Replaces the throwaway <code>DIAG</code> prints. Privacy-first as-is: nothing leaves the device; the user can view or delete the log.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> the grounding names the gap verbatim — "3 gated optimizations sit unlanded pending device measurement, with NO harness to capture the numbers." Verifier confirmed the pipeline exposes exactly the state a recorder samples, and that no structured logging exists anywhere.</dd>
+<dt>Rationale</dt>
+<dd>Four of six ideation frames independently proposed this — the strongest convergence in the run. The empty-transcript bug is over-determined (single-cause fixes historically never stuck; the STT engine was swapped three times chasing causes); a recorder turns "we think it's the teardown race" into "31 of 40 empty transcripts show two transcribers overlapping." It is also the enabler for ideas 4 and 6: without it, every device-gated decision stays blocked on a human watching Instruments.</dd>
+<dt>Downsides</dt>
+<dd>Pure infrastructure — no user-visible feature for the effort. Ring-buffer sampling must itself stay off the audio render thread (the project's hard constraint).</dd>
+</dl>
+<figure>
+<svg viewBox="0 0 640 150" width="640" height="150" role="img" aria-label="Flight recorder closed loop">
+<rect x="10" y="50" width="140" height="48" rx="9" fill="#eef1e6" stroke="#6f7f5c"/>
+<text x="80" y="70" text-anchor="middle" font-size="12" font-weight="600" fill="#33291f">Ring buffer</text>
+<text x="80" y="86" text-anchor="middle" font-size="10" fill="#8a7a68">state + timing + memory</text>
+<path d="M150 74 H 210" stroke="#5b4636" stroke-width="1.6" marker-end="url(#a1)"/>
+<rect x="212" y="50" width="130" height="48" rx="9" fill="#f8efdc" stroke="#b98a2e"/>
+<text x="277" y="70" text-anchor="middle" font-size="12" font-weight="600" fill="#33291f">Anomaly trigger</text>
+<text x="277" y="86" text-anchor="middle" font-size="10" fill="#8a7a68">empty / hang / jetsam-near</text>
+<path d="M342 74 H 402" stroke="#5b4636" stroke-width="1.6" marker-end="url(#a1)"/>
+<rect x="404" y="50" width="110" height="48" rx="9" fill="#f7e8e0" stroke="#c96f4a"/>
+<text x="459" y="70" text-anchor="middle" font-size="12" font-weight="600" fill="#33291f">Local snapshot</text>
+<text x="459" y="86" text-anchor="middle" font-size="10" fill="#8a7a68">never leaves device</text>
+<path d="M514 74 H 574" stroke="#5b4636" stroke-width="1.6" marker-end="url(#a1)"/>
+<rect x="576" y="38" width="56" height="72" rx="9" fill="#fffdf8" stroke="#5b4636"/>
+<text x="604" y="62" text-anchor="middle" font-size="11" font-weight="600" fill="#33291f">Gates</text>
+<text x="604" y="78" text-anchor="middle" font-size="9" fill="#8a7a68">U14 pass</text>
+<text x="604" y="91" text-anchor="middle" font-size="9" fill="#8a7a68">3 held opts</text>
+<text x="604" y="104" text-anchor="middle" font-size="9" fill="#8a7a68">ideas 4 + 6</text>
+<defs><marker id="a1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4636"/></marker></defs>
+</svg>
+<figcaption>Record continuously, persist on anomaly, and every blocked go/no-go decision gets its numbers.</figcaption>
+</figure>
+</article>
+
+<article class="idea" id="i2">
+<h3>2. Keep the Voice — the recording is the record</h3>
+<div class="chips"><span class="chip conf-h">Confidence 85%</span><span class="chip cx">Complexity Medium</span><span class="chip frames">2 frames + verified</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>Persist the raw per-answer recording and make it the record of the answer; the transcript becomes a best-effort index over audio ground-truth. Today <code>Answer</code> stores only <code>answerText: String</code>, and the STT service materializes the samples, reads them once, then purges them (<code>purgeAudioSamples(keepingLast: 0)</code>) — the elder's actual voice is deleted on every turn.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> verifier confirmed both citations exactly (Answer.swift audio-free; STTService.swift:355 purge). <span class="basis-tag">external:</span> StoryWorth sells verbatim trust ("your memoir should sound exactly like you"); HereAfter's product is replaying real recordings.</dd>
+<dt>Rationale</dt>
+<dd>Two independent effects from one storage decision. Reliability: an empty transcript stops being data loss — the audio survives, so it can be re-transcribed on retry, next launch, or a future better model; the project's most-fought failure class becomes recoverable by construction. Product: the sound of a person's voice is the least reproducible thing they leave, it is the category's named trust differentiator, and it is the prerequisite for any future "hear it in their voice" feature. Irreversible loss is shipping today — every answer captured before this lands can never get its audio back.</dd>
+<dt>Downsides</dt>
+<dd>Storage growth (roughly 1MB/minute compressed — manageable, needs a cap/cleanup policy). Schema migration for existing answers (text-only entries stay text-only). Purge-timing changes must respect the render-thread constraint.</dd>
+</dl>
+<figure>
+<svg viewBox="0 0 640 168" width="640" height="168" role="img" aria-label="Before and after: audio discarded vs audio kept as the record">
+<text x="12" y="22" font-size="11" font-weight="700" fill="#b05d5d">TODAY</text>
+<rect x="12" y="32" width="86" height="36" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="55" y="54" text-anchor="middle" font-size="11" fill="#33291f">Voice</text>
+<path d="M98 50 H 148" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a2)"/>
+<rect x="150" y="32" width="96" height="36" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="198" y="54" text-anchor="middle" font-size="11" fill="#33291f">Transcript</text>
+<path d="M246 50 H 296" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a2)"/>
+<rect x="298" y="32" width="96" height="36" rx="8" fill="#f6e5e5" stroke="#b05d5d" stroke-dasharray="4 3"/><text x="346" y="49" text-anchor="middle" font-size="10.5" fill="#b05d5d">audio purged</text><text x="346" y="62" text-anchor="middle" font-size="10.5" fill="#b05d5d">keepingLast: 0</text>
+<text x="12" y="106" font-size="11" font-weight="700" fill="#6f7f5c">PROPOSED</text>
+<rect x="12" y="116" width="86" height="36" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="55" y="138" text-anchor="middle" font-size="11" fill="#33291f">Voice</text>
+<path d="M98 134 H 148" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a2)"/>
+<rect x="150" y="116" width="120" height="36" rx="8" fill="#eef1e6" stroke="#6f7f5c"/><text x="210" y="133" text-anchor="middle" font-size="10.5" font-weight="600" fill="#33291f">Audio kept</text><text x="210" y="146" text-anchor="middle" font-size="9.5" fill="#8a7a68">the record, on-device</text>
+<path d="M270 134 H 320" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a2)"/>
+<rect x="322" y="116" width="130" height="36" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="387" y="133" text-anchor="middle" font-size="10.5" fill="#33291f">Transcript = index</text><text x="387" y="146" text-anchor="middle" font-size="9.5" fill="#8a7a68">re-transcribable anytime</text>
+<defs><marker id="a2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4636"/></marker></defs>
+</svg>
+<figcaption>The contrast: today the most valuable thing captured is deleted after one read. Kept, it makes empty transcripts recoverable and the verbatim voice a feature.</figcaption>
+</figure>
+</article>
+
+<article class="idea" id="i3">
+<h3>3. Verbatim Provenance — thread their words through the pipeline</h3>
+<div class="chips"><span class="chip conf-h">Confidence 80%</span><span class="chip cx">Complexity Medium</span><span class="chip frames">6 frames converged</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>Make the raw transcript a first-class, segment-linked source that travels through chapter generation and is stored beside each chapter. Verified defect at the heart of it: <code>ChapterGenerator.writeDraft</code> is instructed to "Use the user's own words where possible" — but it only ever receives Pass&nbsp;1's extracted bullets, never the raw answers. The instruction is unsatisfiable as written; the person's actual words are discarded two passes before the writer runs.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> verifier confirmed verbatim (ChapterGenerator.swift:142-158). <span class="basis-tag">external:</span> the category's most-repeated complaint is Remento's rewrite "doesn't feel like their real voice"; StoryWorth monetizes the opposite.</dd>
+<dt>Rationale</dt>
+<dd>One schema decision unlocks a family of features without committing to any one of them: real pull-quotes inside chapters, a facing-page verbatim/prose view (translation practice's answer to the same fidelity war), a consent UI where the elder ratifies each polished passage, and the provenance trail a future queryable archive needs. It converts the category fault line from a positioning risk into Lifehug's differentiator — and it is far cheaper to decide before more features harden around lossy prose. Pairs naturally with idea 2 (keep the voice) as one trust story.</dd>
+<dt>Downsides</dt>
+<dd>Touches the answer/chapter schema and all three generator passes; presentation variants (facing-page, consent) are separate follow-on work that should not ride the schema change.</dd>
+</dl>
+<figure>
+<svg viewBox="0 0 640 132" width="640" height="132" role="img" aria-label="Three-pass generator drops raw words after pass 1">
+<rect x="10" y="26" width="104" height="42" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="62" y="44" text-anchor="middle" font-size="11" font-weight="600" fill="#33291f">Raw answers</text><text x="62" y="58" text-anchor="middle" font-size="9.5" fill="#8a7a68">their actual words</text>
+<path d="M114 47 H 158" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a3)"/>
+<rect x="160" y="26" width="92" height="42" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="206" y="44" text-anchor="middle" font-size="11" fill="#33291f">Pass 1</text><text x="206" y="58" text-anchor="middle" font-size="9.5" fill="#8a7a68">extract bullets</text>
+<path d="M252 47 H 296" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a3)"/>
+<rect x="298" y="26" width="92" height="42" rx="8" fill="#fffdf8" stroke="#5b4636"/><text x="344" y="44" text-anchor="middle" font-size="11" fill="#33291f">Pass 2</text><text x="344" y="58" text-anchor="middle" font-size="9.5" fill="#8a7a68">outline</text>
+<path d="M390 47 H 434" stroke="#5b4636" stroke-width="1.5" marker-end="url(#a3)"/>
+<rect x="436" y="26" width="120" height="42" rx="8" fill="#f6e5e5" stroke="#b05d5d"/><text x="496" y="44" text-anchor="middle" font-size="10.5" font-weight="600" fill="#b05d5d">Pass 3: "use their</text><text x="496" y="58" text-anchor="middle" font-size="10.5" font-weight="600" fill="#b05d5d">own words" — can't</text>
+<path d="M62 68 V 100 H 436" stroke="#6f7f5c" stroke-width="1.6" stroke-dasharray="5 4" fill="none"/>
+<path d="M436 100 L 480 100 480 72" stroke="#6f7f5c" stroke-width="1.6" stroke-dasharray="5 4" fill="none" marker-end="url(#a3g)"/>
+<text x="250" y="116" font-size="10.5" font-weight="600" fill="#6f7f5c">proposed: segment-linked raw answers reach the writer</text>
+<defs>
+<marker id="a3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b4636"/></marker>
+<marker id="a3g" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6f7f5c"/></marker>
+</defs>
+</svg>
+<figcaption>The words are dropped two passes before the instruction that needs them; the dashed path is the fix.</figcaption>
+</figure>
+</article>
+
+<article class="idea" id="i4">
+<h3>4. Instrumented Latency — backchannel + first-sentence speech</h3>
+<div class="chips"><span class="chip conf-h">Confidence 80%</span><span class="chip cx">Complexity Small-Medium</span><span class="chip frames">2 frames, code-comment verified</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>Two complementary latency moves, shipped behind flight-recorder gates (idea 1) instead of waiting for the manual device pass. <em>Backchannel:</em> the instant the user stops speaking, play a tiny canned acknowledgment ("mm — tell me more") at zero latency and hide the entire LLM generation behind it. <em>First-sentence speech:</em> speak the first generated sentence while the rest still streams — the sentence splitter already extracts sentences during streaming and today just buffers them; the change is closer to a buffer deletion than a feature.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> the most rigorously grounded claim in the run — VoicePipeline.swift:289-296 carries an explicit comment stating TTS starts only after full collection and that first-sentence TTS is deliberately gated on iPhone 17 data (KTD2/U14). <code>sentenceBuffer.extractSentence()</code> confirmed running inside the token loop.</dd>
+<dt>Rationale</dt>
+<dd>Transcript-to-first-speech currently carries the entire generation (up to 150 tokens — several seconds on-device). The backchannel makes the conversation feel human even on the slowest tier, at near-zero risk; first-sentence speech then cuts the real latency. Gating both on recorder telemetry converts the plan's "wait for a human device pass" into "ship instrumented, promote on data" — respecting the original caution while removing its bottleneck.</dd>
+<dt>Downsides</dt>
+<dd>Depends on idea 1 for its gates. First-sentence speech retains the memory-contention risk the plan flagged (MLX generating while Kokoro synthesizes) — that is exactly what the gate measures. Backchannel needs taste: a canned response that repeats verbatim gets robotic fast (small rotating set, prosody variation).</dd>
+</dl>
+<figure>
+<svg viewBox="0 0 640 150" width="640" height="150" role="img" aria-label="Latency timeline before and after">
+<text x="12" y="20" font-size="11" font-weight="700" fill="#b05d5d">TODAY</text>
+<rect x="70" y="30" width="300" height="20" rx="5" fill="#f3ede2" stroke="#8a7a68"/><text x="220" y="44" text-anchor="middle" font-size="10" fill="#5b4636">full LLM generation (silence)</text>
+<rect x="372" y="30" width="150" height="20" rx="5" fill="#f7e8e0" stroke="#c96f4a"/><text x="447" y="44" text-anchor="middle" font-size="10" fill="#5b4636">speech</text>
+<text x="70" y="66" font-size="9.5" fill="#8a7a68">user stops speaking</text>
+<text x="12" y="96" font-size="11" font-weight="700" fill="#6f7f5c">PROPOSED</text>
+<rect x="70" y="106" width="58" height="20" rx="5" fill="#eef1e6" stroke="#6f7f5c"/><text x="99" y="120" text-anchor="middle" font-size="9" fill="#33291f">"mm—"</text>
+<rect x="130" y="106" width="130" height="20" rx="5" fill="#f7e8e0" stroke="#c96f4a"/><text x="195" y="120" text-anchor="middle" font-size="9.5" fill="#5b4636">sentence 1 spoken</text>
+<rect x="262" y="106" width="180" height="20" rx="5" fill="#f3ede2" stroke="#8a7a68"/><text x="352" y="120" text-anchor="middle" font-size="9.5" fill="#5b4636">rest generates behind speech</text>
+<text x="70" y="142" font-size="9.5" fill="#8a7a68">0 ms perceived response</text>
+</svg>
+<figcaption>Perceived silence goes from the whole generation to nothing; the model keeps thinking behind the voice.</figcaption>
+</figure>
+</article>
+
+<article class="idea" id="i5">
+<h3>5. The Humane Interviewer — chase tangents, know when to stop</h3>
+<div class="chips"><span class="chip conf-m">Confidence 70%</span><span class="chip cx">Complexity Medium</span><span class="chip frames">6 frames converged</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>Upgrade the interviewer from a form into a listener, in three prompt/orchestration moves (no new ML): <em>content-aware selection</em> — the RotationEngine currently scores only category-coverage ratios and never reads a word the person said, so give selection the answer text; <em>a depth ladder</em> — let the LLM stay on a rich thread ("tell me more", "what did it look like") instead of snapping back to the rotation after one follow-up; <em>the broadcast "button"</em> — detect an emotionally loaded close and hold (acknowledge, pause) rather than firing the next question over it. Extensions once this lands: resurface the user's own past answers as prompts (spaced-repetition style), and family-supplied photo+caption seeds.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> verifier confirmed the prompt is pinned to a single question with "Maximum TWO short sentences" and that selection is content-blind (RotationEngine + the identical Python picker). <span class="basis-tag">external:</span> StoryCorps field method — tangents are where the real material lives; radio production's mirror skill of protecting a strong close.</dd>
+<dt>Rationale</dt>
+<dd>The warm live interviewer is pillar (b) of the verified competitive whitespace, and the current prompt structurally underdelivers it. Question quality is upstream of everything: richer answers feed better chapters, better payoffs, better retention. That makes this the biggest product win per line of code in the set.</dd>
+<dt>Downsides</dt>
+<dd>Interview-quality changes are hard to evaluate objectively (pairs well with a golden-set eval, see rejection sidebar). Tangent-chasing must not break coverage guarantees entirely — rotation stays as the fallback spine.</dd>
+</dl>
+</article>
+
+<article class="idea" id="i6">
+<h3>6. Adaptive LLM Tier — step down before the jetsam cliff</h3>
+<div class="chips"><span class="chip conf-h">Confidence 80%</span><span class="chip cx">Complexity Medium</span><span class="chip frames">2 frames converged</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>Extend the existing memory-pressure ladder to the LLM itself. Today the ladder degrades TTS and unloads Kokoro but — per its own comment — deliberately "keep[s] LLM loaded", even though the LLM is the actual 300MB&rarr;2.3GB balloon. Under sustained pressure, transparently step the model down a tier (Quality&rarr;Balanced&rarr;Fast) instead of letting iOS kill the app mid-answer; also auto-select the recommended tier at onboarding (the RAM-based picker already exists) so the choice stops being a user decision that can be wrong.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> verifier confirmed better than claimed — the "keep LLM loaded" comment is literal (VoicePipeline.swift:507-510), and tiers already carry <code>minimumRAM</code>, so the downgrade target is well-defined. <span class="basis-tag">external:</span> HLS/DASH adaptive bitrate — the standard answer to a measured resource with a cliff failure.</dd>
+<dt>Rationale</dt>
+<dd>The unmonitored 6GB-device jetsam risk (a named build-13 watch item) is a "static choice meets dynamic resource" problem; adaptation is the only fix shape that survives the RAM balloon. The difference for the user is a crash mid-sentence versus a barely noticed quality dip. Closes the loop with idea 1: the recorder's memory watermarks are exactly the input this policy reads.</dd>
+<dt>Downsides</dt>
+<dd>Tier swap mid-session costs a model load (seconds) — needs to happen between turns, not mid-generation. Session context must re-materialize on the new tier (the lazy-session machinery from this branch already handles that shape).</dd>
+</dl>
+<figure>
+<svg viewBox="0 0 640 140" width="640" height="140" role="img" aria-label="Pressure ladder with missing LLM rung">
+<text x="14" y="22" font-size="11" font-weight="700" fill="#5b4636">Memory-pressure ladder</text>
+<rect x="14" y="34" width="180" height="26" rx="6" fill="#eef1e6" stroke="#6f7f5c"/><text x="104" y="51" text-anchor="middle" font-size="10.5" fill="#33291f">elevated &rarr; system TTS</text>
+<rect x="14" y="66" width="180" height="26" rx="6" fill="#f8efdc" stroke="#b98a2e"/><text x="104" y="83" text-anchor="middle" font-size="10.5" fill="#33291f">critical &rarr; unload Kokoro</text>
+<rect x="14" y="98" width="180" height="26" rx="6" fill="#f6e5e5" stroke="#b05d5d" stroke-dasharray="4 3"/><text x="104" y="115" text-anchor="middle" font-size="10.5" font-weight="600" fill="#b05d5d">LLM rung: missing</text>
+<text x="230" y="51" font-size="10.5" fill="#8a7a68">~80MB reclaimed</text>
+<text x="230" y="83" font-size="10.5" fill="#8a7a68">~80MB reclaimed</text>
+<text x="230" y="115" font-size="10.5" font-weight="600" fill="#b05d5d">the 2.3GB balloon stays resident &rarr; jetsam</text>
+<rect x="440" y="60" width="186" height="56" rx="9" fill="#eef1e6" stroke="#6f7f5c"/>
+<text x="533" y="80" text-anchor="middle" font-size="10.5" font-weight="600" fill="#33291f">proposed rung</text>
+<text x="533" y="96" text-anchor="middle" font-size="10" fill="#5b4636">Quality &rarr; Balanced &rarr; Fast</text>
+<text x="533" y="109" text-anchor="middle" font-size="9" fill="#8a7a68">between turns, quality dip not crash</text>
+</svg>
+<figcaption>The ladder reclaims ~80MB twice and never touches the multi-gigabyte resident — the rung that matters is the one that doesn't exist.</figcaption>
+</figure>
+</article>
+
+<article class="idea" id="i7">
+<h3>7. Mid-Project Chapter Payoff — value before the book is done</h3>
+<div class="chips"><span class="chip conf-m">Confidence 65%</span><span class="chip cx">Complexity Medium</span><span class="chip frames">4 frames converged</span></div>
+<dl class="fields">
+<dt>Description</dt>
+<dd>Auto-generate a small finished piece partway through (a "chapter so far", a polished vignette from one rich answer, or a pull-quote card) after every N answers or a completed theme, unprompted. Variant worth prototyping: run generation opportunistically while the phone charges overnight (idle + plugged-in = free compute, zero contention with the live audio stack), so the user wakes to a freshly drafted chapter.</dd>
+<dt>Basis</dt>
+<dd><span class="basis-tag">direct:</span> <code>ChapterGenerator.generate(category:answers:)</code> confirmed to accept partial answer sets — early generation needs no schema change. <span class="basis-tag">external:</span> ~87% of journaling-app users quit within 7 days; rotation already solves blank-page paralysis, and "no ongoing value when life is calm" is the named, undesigned-against half.</dd>
+<dt>Rationale</dt>
+<dd>Retention caps the value of every other feature — the best interviewer loses to a user who left in week one. A mid-project payoff is the one retention mechanic competitors can't copy without on-device narrative generation, which Lifehug already ships. It also feeds a genuine flywheel: each early piece keeps the user coming back, which produces more answers, which improves the final book.</dd>
+<dt>Downsides</dt>
+<dd>The churn statistic is category-level, not measured for Lifehug (no analytics by design — success is partly unobservable). Small-model chapter quality on partial data may underwhelm; the overnight variant needs background-processing budget care.</dd>
+</dl>
+</article>
+
+<div class="callout sage">
+<span class="eyebrow">Sequencing note</span>
+Ideas 2 + 3 form one trust story (keep the audio + keep their words traceable) and are the prerequisites for a future queryable "converse with the archive" product — the run's most ambitious rejected-for-now candidate. Ideas 1, 4, and 6 form a closed measurement-and-actuation loop: the recorder supplies the numbers; the latency and tier policies consume them.
+</div>
+
+<div class="callout amber">
+<span class="eyebrow">Quick wins sidebar (below the meeting-floor solo, worth batching)</span>
+Three small verified items that don't warrant ranked slots but shouldn't be lost: (a) wire the already-written team-ID preflight script into the release workflow; (b) add a real integrity check to model downloads — today "verification" is literally the comment <em>"the container loaded successfully, so the model is valid"</em>, and no checksum exists anywhere in the codebase; (c) a golden-set generation eval (no reasoning-tag leaks, first person, quote fidelity) so tier/prompt swaps stop being swap-and-pray.
+</div>
+
+<h2 id="rejection-summary">Rejection Summary</h2>
+<table>
+<thead><tr><th>#</th><th>Idea</th><th>Reason rejected</th></tr></thead>
+<tbody>
+<tr><td>R1</td><td>First-wins timeout + watchdog UX</td><td>Already covered — substantially the owed pre-build-14 review findings; watchdog UX is a rider on that work, not an independent idea.</td></tr>
+<tr><td>R2</td><td>Shrink the live interviewer (intent-matching instead of live LLM)</td><td>Basis refuted — "follow-ups are a small finite move-set" is unevidenced and contradicts the whitespace pillar (live conversational follow-ups) plus idea 5's tangent-chasing, which needs generativity.</td></tr>
+<tr><td>R3</td><td>Async correspondence memoir (pen-pal mode)</td><td>Basis refuted — cited Storii as async prior art; Storii is scheduled synchronous phone calls. Architectural kernel (decouple real-time pressure) noted, not ranked.</td></tr>
+<tr><td>R4</td><td>One-model-at-a-time pipeline</td><td>Compounds a fragile path — adds STT load/unload cycles onto the WhisperKit load flagged hang-prone in the same owed findings; idea 6 covers the memory risk with less blast radius.</td></tr>
+<tr><td>R5</td><td>Room-scale group reminiscence (diarization)</td><td>Skips the framework-churn learning's required step — new diarization capability with no on-device failure-mode validation plan. Named future bet.</td></tr>
+<tr><td>R6</td><td>Witness Mode (family member operates the interview)</td><td>Strong but a positioning fork, not an engineering pick — deserves its own brainstorm on who Lifehug's user is; photo-seed extension preserved under idea 5.</td></tr>
+<tr><td>R7</td><td>Queryable conversational archive</td><td>Sequenced out — depends on ideas 2 + 3 landing first; revisit once the trust stack exists.</td></tr>
+<tr><td>R8</td><td>10-second micro-capture + productive download wait</td><td>Strong runner-up — distinct first-run/retention mechanics; revisit after idea 7 ships rather than splitting the retention bet.</td></tr>
+<tr><td>R9</td><td>Reminiscence-therapy repositioning</td><td>Strategy question, not buildable work — a real fork (wellbeing intervention vs content capture) flagged for a strategy session, not a ranked slot.</td></tr>
+<tr><td>R10</td><td>"Family loop" synthesis</td><td>Invented scope — the sharing/referral mechanism appears in none of its constituent ideas' evidence.</td></tr>
+<tr><td>R11</td><td>"Humane interviewer" bundle-as-architecture</td><td>Decorative bundling — no interaction effect beyond a shared surface; kept as idea 5 plus named extensions instead.</td></tr>
+<tr><td>R12</td><td>Outcome-first empty-transcript recovery</td><td>Merged into idea 2 (keep the voice): kept audio makes the outcome recoverable by construction.</td></tr>
+</tbody>
+</table>
+
+<footer class="composition-signal">Composed 2026-07-11T04:24Z by ce-ideate (surprise-me, repo-grounded) · 46 raw ideas from 6 frames &rarr; 26 merged &rarr; 7 survivors · basis-verified by fresh-context review, 6 priority claims spot-checked against source</footer>
+</div></body>
+</html>

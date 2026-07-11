@@ -51,6 +51,17 @@ final class KokoroManager {
     private var isSynthesizing = false
     /// Set when unloadEngine is requested during synthesis; performed once synth ends.
     private var pendingUnload = false
+    /// Set when deleteModel is requested during synthesis; the file removal runs after
+    /// the deferred unload so the CoreML cache is never deleted mid-inference.
+    private var pendingDelete = false
+
+    /// Memoized positive result of the coremldata.bin payload walk in modelsExistOnDisk.
+    /// The walk is O(directory tree) and `isModelDownloaded` is read from SwiftUI bodies
+    /// (Settings re-renders on every downloadProgress tick), so a confirmed payload is
+    /// cached. Only `true` is cached — the payload can appear at any point mid-download.
+    /// Reset by deleteModel(). @ObservationIgnored: a cache fill during a body read must
+    /// not invalidate the view.
+    @ObservationIgnored private var modelsPayloadVerified = false
 
     // MARK: - Computed Properties
 
@@ -60,6 +71,7 @@ final class KokoroManager {
 
     /// Check if FluidAudio has REAL cached models on disk — not just the stub directory.
     private var modelsExistOnDisk: Bool {
+        if modelsPayloadVerified { return true }
         guard let cacheDir = try? TtsModels.cacheDirectoryURL() else { return false }
         let modelsDir = cacheDir.appendingPathComponent(TtsConstants.defaultModelsSubdirectory)
         let fm = FileManager.default
@@ -73,6 +85,7 @@ final class KokoroManager {
             return false
         }
         for case let url as URL in enumerator where url.lastPathComponent == "coremldata.bin" {
+            modelsPayloadVerified = true
             return true
         }
         return false
@@ -244,14 +257,30 @@ final class KokoroManager {
         logger.info("Kokoro engine unloaded")
     }
 
-    /// Runs a deferred unload once synthesis completes.
+    /// Runs a deferred unload (and any deferred delete) once synthesis completes.
     private func performPendingUnloadIfNeeded() {
         guard pendingUnload else { return }
         performUnload()
+        if pendingDelete {
+            pendingDelete = false
+            performDelete()
+        }
     }
 
     func deleteModel() {
+        // Never remove the CoreML files under an in-flight synthesize — the same race
+        // unloadEngine defers on. Mark both; speak()'s cleanup finishes the job.
+        guard !isSynthesizing else {
+            pendingDelete = true
+            pendingUnload = true
+            logger.info("Kokoro delete deferred — synthesis in flight")
+            return
+        }
         unloadEngine()
+        performDelete()
+    }
+
+    private func performDelete() {
         // Clear FluidAudio's cached CoreML models
         if let cacheDir = try? TtsModels.cacheDirectoryURL() {
             try? FileManager.default.removeItem(at: cacheDir)
@@ -264,6 +293,7 @@ final class KokoroManager {
         Self.selectedVoice = TtsConstants.recommendedVoice  // Reset to af_heart
         phase = .idle
         errorMessage = nil
+        modelsPayloadVerified = false
         logger.info("Kokoro model cache deleted")
     }
 
@@ -300,11 +330,16 @@ final class KokoroManager {
         nonisolated(unsafe) let unsafeManager = ttsManager!
         let voice = Self.selectedVoice
 
-        // Mark synthesis in flight so a concurrent unloadEngine() defers (P2-7). Perform
-        // any deferred unload once synthesis finishes, whether it succeeds or throws.
+        // Mark synthesis in flight so a concurrent unloadEngine() defers (P2-7). The
+        // defer runs the cleanup exactly once — success or throw — at do-block exit,
+        // BEFORE the manager-still-loaded check below (never delayed through playback).
         isSynthesizing = true
         let audioData: Data
         do {
+            defer {
+                isSynthesizing = false
+                performPendingUnloadIfNeeded()
+            }
             audioData = try await unsafeManager.synthesize(
                 text: text,
                 voice: voice,
@@ -312,13 +347,7 @@ final class KokoroManager {
                 variantPreference: .fifteenSecond,
                 deEss: true
             )
-        } catch {
-            isSynthesizing = false
-            performPendingUnloadIfNeeded()
-            throw error
         }
-        isSynthesizing = false
-        performPendingUnloadIfNeeded()
 
         // If an unload was deferred and just ran, the manager is gone — don't play.
         guard ttsManager != nil else {

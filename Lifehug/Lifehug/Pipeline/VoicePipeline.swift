@@ -39,9 +39,25 @@ final class VoicePipeline {
     /// When true, the pipeline will auto-reopen the mic after TTS finishes or interruption ends.
     var autoReopenMic: Bool = false
 
-    var onTranscriptFinalized: ((String) -> Void)?
+    /// A finalized user turn handed to the view (U3/U4): the text plus the clip reference
+    /// and per-segment flags, so text and audio arrive together. An empty text with
+    /// `needsTranscription` is a kept-but-unrecognized turn (R3), not a dropped one.
+    struct FinalizedTurn {
+        let text: String
+        let clipFilename: String?
+        let isVoice: Bool
+        let needsTranscription: Bool
+        let audioFailed: Bool
+    }
+
+    var onTranscriptFinalized: ((FinalizedTurn) -> Void)?
     var onResponseGenerated: ((String) -> Void)?
     var onTerminationDetected: (@MainActor () -> Void)?
+
+    /// Supplies the clip staging destination for the next recorded turn (KTD7), computed by
+    /// the view from SessionState. Nil disables audio capture. Evaluated just before each
+    /// mic start, so the turn index is current.
+    var clipDestinationProvider: (@MainActor () -> STTService.ClipContext?)?
 
     // MARK: - Termination Phrase Detection
 
@@ -119,16 +135,12 @@ final class VoicePipeline {
         observeRouteChanges()
     }
 
-    /// Unwire auto-reopen and remove audio observers.
-    func unwireAutoReopen() {
-        autoReopenMic = false
-        removeAudioObservers()
-    }
-
     /// Process a text input directly (bypass STT)
     func processTextInput(_ text: String) {
         partialTranscript = text
-        onTranscriptFinalized?(text)
+        onTranscriptFinalized?(FinalizedTurn(
+            text: text, clipFilename: nil, isVoice: false, needsTranscription: false, audioFailed: false
+        ))
         transition(to: .processing)
         processUserInput(text)
     }
@@ -165,6 +177,8 @@ final class VoicePipeline {
         lastDetectedPhrase = nil
 
         print("[Pipeline] DIAG: isAuthorized=\(sttService.isAuthorized), isASRReady=\(sttService.isASRReady)")
+        // Point STT at this turn's clip staging destination (KTD7) before recording starts.
+        sttService.clipContext = clipDestinationProvider?()
         let stream = sttService.startListening()
         var terminatedByPhrase = false
         var yieldCount = 0
@@ -218,27 +232,42 @@ final class VoicePipeline {
                 terminationDetected = true
                 onTerminationDetected?()
                 state = .idle
-            } else {
-                consecutiveEmpty += 1
-                if Self.shouldRetryEmpty(autoReopenMic: autoReopenMic, consecutiveEmpty: consecutiveEmpty, maxRetries: maxEmptyRetries) {
-                    logger.info("Empty transcript — auto-retry \(self.consecutiveEmpty)/\(self.maxEmptyRetries)")
-                    // A single transient empty result must not silently end a hands-free
-                    // conversation. Briefly pause, then reopen the mic.
-                    Task { [weak self] in
-                        try? await Task.sleep(for: .milliseconds(400))
-                        guard let self, self.autoReopenMic else { return }
-                        // Never re-arm the mic when not foreground-active (P2). Settle to
-                        // idle rather than leaving the UI stuck on "Listening…" with a dead
-                        // mic — the next tap then starts a fresh listen.
-                        guard Self.appIsActive else { self.state = .idle; return }
-                        self.startListening()
-                    }
-                } else {
-                    print("[Pipeline] ❌ DIAG: Empty transcript → showing 'I didn't catch that'")
-                    error = "I didn't catch that. Try again?"
-                    consecutiveEmpty = 0
-                    state = .idle
+                return
+            }
+
+            // Audio captured but transcript empty → PRESERVE as an audio-only segment
+            // (R3/F2), never discard. The clip survives and re-transcription can fill the
+            // text later. There is no text for the LLM, so no response is generated.
+            if let clip = sttService.lastCapturedClipFilename {
+                logger.info("Empty transcript with kept audio — saving audio-only segment")
+                onTranscriptFinalized?(FinalizedTurn(
+                    text: "", clipFilename: clip, isVoice: true, needsTranscription: true, audioFailed: false
+                ))
+                consecutiveEmpty = 0
+                reopenMicOrIdle()
+                return
+            }
+
+            // Genuine silence (no clip captured) → existing bounded retry / error behavior.
+            consecutiveEmpty += 1
+            if Self.shouldRetryEmpty(autoReopenMic: autoReopenMic, consecutiveEmpty: consecutiveEmpty, maxRetries: maxEmptyRetries) {
+                logger.info("Empty transcript — auto-retry \(self.consecutiveEmpty)/\(self.maxEmptyRetries)")
+                // A single transient empty result must not silently end a hands-free
+                // conversation. Briefly pause, then reopen the mic.
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard let self, self.autoReopenMic else { return }
+                    // Never re-arm the mic when not foreground-active (P2). Settle to
+                    // idle rather than leaving the UI stuck on "Listening…" with a dead
+                    // mic — the next tap then starts a fresh listen.
+                    guard Self.appIsActive else { self.state = .idle; return }
+                    self.startListening()
                 }
+            } else {
+                print("[Pipeline] ❌ DIAG: Empty transcript → showing 'I didn't catch that'")
+                error = "I didn't catch that. Try again?"
+                consecutiveEmpty = 0
+                state = .idle
             }
             return
         }
@@ -252,8 +281,26 @@ final class VoicePipeline {
 
         // Real transcript — clear the empty-retry budget.
         consecutiveEmpty = 0
-        onTranscriptFinalized?(finalTranscript)
+        onTranscriptFinalized?(FinalizedTurn(
+            text: finalTranscript,
+            clipFilename: sttService.lastCapturedClipFilename,
+            isVoice: true,
+            needsTranscription: false,
+            audioFailed: sttService.lastCaptureFailed
+        ))
         processUserInput(finalTranscript)
+    }
+
+    /// After preserving an audio-only turn (no text to answer): reopen the mic hands-free,
+    /// or settle to idle. Never re-arms while backgrounded/inactive (P2).
+    private func reopenMicOrIdle() {
+        guard autoReopenMic else { state = .idle; return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, self.autoReopenMic else { return }
+            guard Self.appIsActive else { self.state = .idle; return }
+            self.startListening()
+        }
     }
 
     /// Whether an empty transcript should auto-reopen the mic (U6) rather than

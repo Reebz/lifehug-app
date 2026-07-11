@@ -17,6 +17,21 @@ struct VoicePipelineTests {
         )
     }
 
+    // MARK: - stopAll teardown
+
+    @Test("stopAll disarms auto-reopen and settles to idle")
+    func stopAllDisarmsAutoReopen() {
+        // stopAll() is the one path guaranteed on every explicit teardown (End Session,
+        // back, disappear); losing the disarm line would silently re-arm the mic after
+        // the user ended the session. Synchronous mutations complete before stopAll's
+        // fire-and-forget teardown Task, so no await is needed.
+        let pipeline = makePipeline()
+        pipeline.autoReopenMic = true
+        pipeline.stopAll()
+        #expect(pipeline.autoReopenMic == false)
+        #expect(pipeline.state == .idle)
+    }
+
     // MARK: - stripTerminationPhrase
 
     @Test("Strips 'that's my answer' from end of text")

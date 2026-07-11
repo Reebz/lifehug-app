@@ -321,9 +321,13 @@ struct ChapterDetailView: View {
 
     @Environment(LLMService.self) private var llmService
     @State private var draft: String?
+    @State private var provenance: ChapterProvenance?
+    @State private var chapterRecord: ChapterRecord?
     @State private var isGenerating = false
     @State private var currentPass: ChapterGenerator.Pass?
     @State private var generationError: String?
+    @State private var showRegenConfirm = false
+    @State private var showFacingPage = false
 
     var body: some View {
         ScrollView {
@@ -394,8 +398,9 @@ struct ChapterDetailView: View {
                                 .font(Theme.headlineFont)
                                 .foregroundStyle(Theme.warmCharcoal)
                             Spacer()
+                            chapterStatusBadge
                             Button("Regenerate") {
-                                generateDraft()
+                                regenerateTapped()
                             }
                             .font(Theme.captionSerifFont)
                             .foregroundStyle(Theme.terracotta)
@@ -411,6 +416,20 @@ struct ChapterDetailView: View {
                                     .fill(Theme.cardBackground)
                                     .shadow(color: Theme.cardShadow, radius: 4, y: 2)
                             )
+
+                        // Facing-page verbatim view (U12) — available once provenance exists.
+                        if let provenance, !provenance.passages.isEmpty {
+                            Button {
+                                showFacingPage = true
+                            } label: {
+                                Label("See it in their words", systemImage: "text.book.closed")
+                                    .font(Theme.captionSerifFont)
+                                    .foregroundStyle(Theme.terracotta)
+                            }
+                        }
+
+                        // Consent / finalization (U11).
+                        consentSection
                     }
                 }
 
@@ -478,6 +497,213 @@ struct ChapterDetailView: View {
         .task {
             loadExistingDraft()
         }
+        .confirmationDialog(
+            "Regenerate this chapter?",
+            isPresented: $showRegenConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Regenerate & Reset Approvals", role: .destructive) { generateDraft() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This chapter has approved passages. Regenerating writes a new draft and resets every passage to unresolved. This cannot be undone.")
+        }
+        .navigationDestination(isPresented: $showFacingPage) {
+            if let provenance {
+                FacingPageView(provenance: provenance, answers: allAnswers, storage: storage)
+            }
+        }
+    }
+
+    // MARK: - Consent / Finalization (U11)
+
+    @ViewBuilder
+    private var chapterStatusBadge: some View {
+        if let status = chapterRecord?.status {
+            let (label, color): (String, Color) = {
+                switch status {
+                case .draft: return ("Draft", Theme.walnut)
+                case .inReview: return ("In review", Theme.amber)
+                case .ratified: return ("Ratified", Theme.sageGreen)
+                }
+            }()
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(color.opacity(0.14)))
+        }
+    }
+
+    @ViewBuilder
+    private var consentSection: some View {
+        if let provenance, !provenance.passages.isEmpty {
+            let record = chapterRecord
+            VStack(alignment: .leading, spacing: 12) {
+                if record?.status == .ratified {
+                    Label("This chapter is final.", systemImage: "checkmark.seal.fill")
+                        .font(Theme.captionSerifFont)
+                        .foregroundStyle(Theme.sageGreen)
+                } else if record?.status == .inReview {
+                    Text("Review each passage")
+                        .font(Theme.subheadlineSerifFont)
+                        .foregroundStyle(Theme.warmCharcoal)
+
+                    ForEach(provenance.passages, id: \.id) { passage in
+                        passageReviewRow(passage)
+                    }
+
+                    Button {
+                        ratifyChapter()
+                    } label: {
+                        Text("Finalize Chapter")
+                            .font(Theme.bodySerifFont.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: Theme.buttonCornerRadius)
+                                    .fill((chapterRecord?.allResolved ?? false) ? Theme.terracotta : Theme.terracotta.opacity(0.4))
+                            )
+                    }
+                    .disabled(!(chapterRecord?.allResolved ?? false))
+                } else {
+                    // Draft (interim) — offer to start finalization, but show no consent prompt.
+                    Button {
+                        beginReview()
+                    } label: {
+                        Label("Review & Finalize", systemImage: "checklist")
+                            .font(Theme.bodySerifFont.weight(.medium))
+                            .foregroundStyle(Theme.terracotta)
+                    }
+                }
+            }
+            .padding(Theme.cardPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.cardCornerRadius)
+                    .fill(Theme.cardBackground)
+                    .shadow(color: Theme.cardShadow, radius: 4, y: 2)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func passageReviewRow(_ passage: ChapterProvenance.PassageProvenance) -> some View {
+        let resolution = chapterRecord?.passages.first { $0.passageID == passage.id }
+        let state = resolution?.state ?? .unresolved
+        VStack(alignment: .leading, spacing: 8) {
+            Text(passage.text)
+                .font(Theme.captionSerifFont)
+                .foregroundStyle(Theme.warmCharcoal)
+                .lineLimit(4)
+
+            HStack(spacing: 8) {
+                resolutionButton("Approve", .approved, state, Theme.sageGreen, passage.id)
+                resolutionButton("Reject", .rejected, state, Theme.mutedRose, passage.id)
+                resolutionButton("Change", .changeRequested, state, Theme.amber, passage.id)
+                Spacer()
+                if state != .unresolved {
+                    Image(systemName: stateIcon(state))
+                        .foregroundStyle(stateColor(state))
+                }
+            }
+
+            if state == .changeRequested {
+                TextField("What to change", text: noteBinding(for: passage.id), axis: .vertical)
+                    .font(.caption)
+                    .lineLimit(1...3)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.warmGray.opacity(0.08)))
+            }
+        }
+        .padding(.vertical, 6)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.warmGray.opacity(0.12)).frame(height: 1)
+        }
+    }
+
+    private func resolutionButton(
+        _ label: String,
+        _ target: ChapterRecord.PassageResolution.State,
+        _ current: ChapterRecord.PassageResolution.State,
+        _ color: Color,
+        _ passageID: String
+    ) -> some View {
+        Button {
+            resolvePassage(passageID, target)
+        } label: {
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(current == target ? .white : color)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(current == target ? color : color.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func stateIcon(_ state: ChapterRecord.PassageResolution.State) -> String {
+        switch state {
+        case .approved: return "checkmark.circle.fill"
+        case .rejected: return "xmark.circle.fill"
+        case .changeRequested: return "pencil.circle.fill"
+        case .unresolved: return "circle"
+        }
+    }
+
+    private func stateColor(_ state: ChapterRecord.PassageResolution.State) -> Color {
+        switch state {
+        case .approved: return Theme.sageGreen
+        case .rejected: return Theme.mutedRose
+        case .changeRequested: return Theme.amber
+        case .unresolved: return Theme.walnut
+        }
+    }
+
+    private func noteBinding(for passageID: String) -> Binding<String> {
+        Binding(
+            get: { chapterRecord?.passages.first { $0.passageID == passageID }?.note ?? "" },
+            set: { newValue in
+                guard var record = chapterRecord else { return }
+                record.resolve(passageID: passageID, state: .changeRequested, note: newValue, now: Date())
+                chapterRecord = record
+                try? storage.saveChapterRecord(record)
+            }
+        )
+    }
+
+    private func beginReview() {
+        guard let provenance else { return }
+        var record = chapterRecord ?? ChapterRecord.newDraft(categoryLetter: category.id, now: Date())
+        record.beginReview(passageIDs: provenance.passages.map(\.id), now: Date())
+        chapterRecord = record
+        try? storage.saveChapterRecord(record)
+    }
+
+    private func resolvePassage(_ passageID: String, _ state: ChapterRecord.PassageResolution.State) {
+        guard var record = chapterRecord else { return }
+        let existingNote = record.passages.first { $0.passageID == passageID }?.note ?? ""
+        record.resolve(passageID: passageID, state: state, note: existingNote, now: Date())
+        chapterRecord = record
+        try? storage.saveChapterRecord(record)
+    }
+
+    private func ratifyChapter() {
+        guard var record = chapterRecord else { return }
+        if record.ratify(now: Date()) {
+            chapterRecord = record
+            try? storage.saveChapterRecord(record)
+        }
+    }
+
+    /// Regenerate gate (KTD15/AE6): confirm when approvals would be reset; otherwise regenerate.
+    private func regenerateTapped() {
+        if chapterRecord?.hasAnyApproval == true || chapterRecord?.status == .ratified {
+            showRegenConfirm = true
+        } else {
+            generateDraft()
+        }
     }
 
     private func loadExistingDraft() {
@@ -486,6 +712,8 @@ struct ChapterDetailView: View {
         } catch {
             draft = nil
         }
+        provenance = storage.readProvenance(categoryLetter: category.id)
+        chapterRecord = storage.readChapterRecord(categoryLetter: category.id)
     }
 
     private func generateDraft() {
@@ -519,6 +747,27 @@ struct ChapterDetailView: View {
                 } catch {
                     // Save failed silently for now
                 }
+
+                // Compute + persist provenance post-hoc (U10). A failed provenance write
+                // surfaces (KTD16) rather than silently dropping.
+                let sourceSegments = ChapterGenerator.sourceSegments(from: answers)
+                let computed = ChapterGenerator.computeProvenance(
+                    draft: chapterDraft, segments: sourceSegments, categoryLetter: category.id
+                )
+                do {
+                    try storage.saveProvenance(computed)
+                    provenance = computed
+                } catch {
+                    generationError = "Chapter saved, but its source links could not be written: \(error.localizedDescription)"
+                }
+
+                // Consent record (KTD15): a (re)generated draft resets every passage to
+                // unresolved and returns the chapter to draft status.
+                var record = chapterRecord ?? ChapterRecord.newDraft(categoryLetter: category.id, now: Date())
+                record.resetForRegeneration(newPassageIDs: computed.passages.map(\.id), now: Date())
+                try? storage.saveChapterRecord(record)
+                chapterRecord = record
+
                 draft = chapterDraft
             } catch {
                 generationError = "Chapter generation failed: \(error.localizedDescription)"
@@ -562,6 +811,14 @@ struct AnswerDetailView: View {
     @State private var isEditing = false
     @State private var editedText: String = ""
     @State private var displayText: String = ""
+    // Live segment list (U5/U6): starts from `answer`, refreshed after a retry fills text.
+    @State private var displaySegments: [Answer.Segment] = []
+    @State private var clipPlayer = AudioClipPlayer()
+    @State private var retrying: Set<String> = []
+    @State private var attentionClips: Set<String> = []
+    @State private var showDeleteAnswerConfirm = false
+    @State private var showDeleteAudioConfirm = false
+    @Environment(STTService.self) private var sttService
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -620,6 +877,9 @@ struct AnswerDetailView: View {
                         )
                 }
 
+                // Voice recordings (U5 recovery + U6 playback)
+                voiceSegmentsSection
+
                 // Follow-up questions
                 if !answer.followUpQuestions.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -652,6 +912,11 @@ struct AnswerDetailView: View {
                         .font(.caption)
                         .foregroundStyle(Theme.walnut)
                 }
+
+                // Delete controls (U7) — the app's first destructive answer operations.
+                if !isEditing {
+                    deleteControls
+                }
             }
             .padding()
         }
@@ -659,6 +924,20 @@ struct AnswerDetailView: View {
         .navigationTitle("Answer")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(LifehugBarStyle())
+        .confirmationDialog("Delete this answer?", isPresented: $showDeleteAnswerConfirm, titleVisibility: .visible) {
+            Button("Delete Answer & Recordings", role: .destructive) { deleteWholeAnswer() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(hasClips
+                 ? "This permanently deletes the written answer and its voice recordings. This cannot be undone."
+                 : "This permanently deletes the answer. This cannot be undone.")
+        }
+        .confirmationDialog("Delete the recordings?", isPresented: $showDeleteAudioConfirm, titleVisibility: .visible) {
+            Button("Delete Recordings", role: .destructive) { deleteAnswerAudio() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the voice recordings but keeps the written answer. This cannot be undone.")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isEditing ? "Save" : "Edit") {
@@ -674,25 +953,243 @@ struct AnswerDetailView: View {
         }
         .onAppear {
             displayText = answer.answerText
+            displaySegments = answer.segments
+            attentionClips = loadAttentionClips()
+            // Refuse playback while a recording session is live (KTD11).
+            clipPlayer.recordingActive = { [weak sttService] in sttService?.isRecording ?? false }
+        }
+        .onDisappear {
+            clipPlayer.stop()
         }
     }
 
+    // MARK: - Voice Segments (U5 recovery + U6 playback)
+
+    @ViewBuilder
+    private var voiceSegmentsSection: some View {
+        let voiceRows = displaySegments.enumerated().filter { $0.element.source == .voice }
+        if !voiceRows.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Voice Recordings")
+                        .font(Theme.subheadlineSerifFont)
+                        .foregroundStyle(Theme.warmCharcoal)
+                    Spacer()
+                    if displaySegments.contains(where: { $0.clipFilename != nil }) {
+                        Button {
+                            toggleAnswerPlayback()
+                        } label: {
+                            Image(systemName: clipPlayer.state == .playing ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 26))
+                                .foregroundStyle(Theme.terracotta)
+                        }
+                        .accessibilityLabel(clipPlayer.state == .playing ? "Pause playback" : "Play all recordings")
+                    }
+                }
+
+                if clipPlayer.refusedWhileRecording {
+                    Text("Finish recording before playing back.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.mutedRose)
+                }
+
+                ForEach(voiceRows, id: \.offset) { _, seg in
+                    segmentRow(seg)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func segmentRow(_ seg: Answer.Segment) -> some View {
+        let isCurrent = seg.clipFilename != nil && clipPlayer.currentClipName == seg.clipFilename
+        HStack(alignment: .top, spacing: 10) {
+            if let clip = seg.clipFilename, let url = try? storage.clipURL(filename: clip) {
+                Button {
+                    clipPlayer.play([(clip, url)])
+                } label: {
+                    Image(systemName: isCurrent && clipPlayer.state == .playing ? "waveform.circle.fill" : "play.circle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Theme.terracotta)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play this recording")
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(seg.text.isEmpty ? "(no transcription yet)" : seg.text)
+                    .font(Theme.captionSerifFont)
+                    .foregroundStyle(seg.text.isEmpty ? Theme.softGray : Theme.warmCharcoal)
+                    .lineLimit(3)
+
+                HStack(spacing: 6) {
+                    if seg.isEdited {
+                        segmentBadge("Edited", Theme.walnut)
+                    }
+                    if seg.needsTranscription {
+                        let needsAttention = seg.clipFilename.map { attentionClips.contains($0) } ?? false
+                        segmentBadge(needsAttention ? "Needs attention" : "Needs transcription",
+                                     needsAttention ? Theme.mutedRose : Theme.amber)
+                    }
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if seg.needsTranscription, let clip = seg.clipFilename {
+                if retrying.contains(clip) {
+                    ProgressView().controlSize(.small).tint(Theme.terracotta)
+                } else {
+                    Button("Retry") {
+                        Task { await retrySegment(clip) }
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.terracotta)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isCurrent ? Theme.terracotta.opacity(0.08) : .clear)
+        )
+    }
+
+    private func segmentBadge(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(color.opacity(0.12)))
+    }
+
+    private func toggleAnswerPlayback() {
+        switch clipPlayer.state {
+        case .playing, .paused:
+            clipPlayer.togglePlayPause()
+        case .idle, .finished:
+            let clips = AudioClipPlayer.playableClips(from: displaySegments) { try? storage.clipURL(filename: $0) }
+            clipPlayer.play(clips)
+        }
+    }
+
+    private func retrySegment(_ clip: String) async {
+        retrying.insert(clip)
+        defer { retrying.remove(clip) }
+        let coordinator = TranscriptionRetryCoordinator(storage: storage, stt: sttService)
+        await coordinator.manualRetry(clipFilename: clip, questionID: answer.questionID)
+        reloadFromDisk()
+    }
+
+    private func reloadFromDisk() {
+        guard let url = try? storage.answerURL(questionID: answer.questionID),
+              let fresh = try? storage.readAnswer(at: url) else { return }
+        displaySegments = fresh.segments
+        displayText = fresh.answerText
+        attentionClips = loadAttentionClips()
+        onSave()
+    }
+
+    private func loadAttentionClips() -> Set<String> {
+        let queue = TranscriptionRetryStore(storage: storage).load()
+        return Set(queue.jobs.filter { $0.status == .needsAttention }.map(\.clipFilename))
+    }
+
+    // MARK: - Delete (U7)
+
+    private var hasClips: Bool {
+        displaySegments.contains { $0.clipFilename != nil }
+    }
+
+    @ViewBuilder
+    private var deleteControls: some View {
+        VStack(spacing: 10) {
+            if hasClips {
+                Button(role: .destructive) {
+                    showDeleteAudioConfirm = true
+                } label: {
+                    Label("Delete Recordings Only", systemImage: "waveform.slash")
+                        .frame(maxWidth: .infinity)
+                }
+                .foregroundStyle(Theme.mutedRose)
+            }
+            Button(role: .destructive) {
+                showDeleteAnswerConfirm = true
+            } label: {
+                Label("Delete Answer", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .foregroundStyle(Theme.mutedRose)
+        }
+        .padding(.top, 8)
+    }
+
+    /// The current on-disk answer (retry may have filled text since this view opened).
+    private func currentAnswer() -> Answer {
+        if let url = try? storage.answerURL(questionID: answer.questionID),
+           let fresh = try? storage.readAnswer(at: url) {
+            return fresh
+        }
+        return answer.replacingSegments(displaySegments)
+    }
+
+    private func deleteWholeAnswer() {
+        clipPlayer.stop()
+        try? storage.deleteAnswer(currentAnswer())
+        onSave()
+        dismiss()
+    }
+
+    private func deleteAnswerAudio() {
+        clipPlayer.stop()
+        if let updated = try? storage.deleteAudio(for: currentAnswer()) {
+            displaySegments = updated.segments
+        }
+        onSave()
+    }
+
     private func saveEditedAnswer() {
+        // Base on the freshest on-disk answer (KTD6/KTD8): a background transcription retry may
+        // have filled a segment's text while this view was open, and editing off the stale
+        // in-memory snapshot would clobber it.
+        let base = currentAnswer()
+        let bodyChanged = editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            != base.answerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preservedSegments: [Answer.Segment] = base.segments.map { seg in
+            // Only mark a populated voice segment user-edited (drops it from pull-quote
+            // eligibility). An empty needs-transcription segment the user never touched must
+            // stay recoverable — marking it edited would permanently cancel its recovery.
+            guard bodyChanged, seg.source == .voice, !seg.needsTranscription, !seg.text.isEmpty else { return seg }
+            var edited = seg
+            edited.isEdited = true
+            return edited
+        }
         let updated = Answer(
-            questionID: answer.questionID,
-            questionText: answer.questionText,
-            categoryLetter: answer.categoryLetter,
-            categoryName: answer.categoryName,
-            passNumber: answer.passNumber,
-            askedDate: answer.askedDate,
-            answeredDate: answer.answeredDate,
+            questionID: base.questionID,
+            questionText: base.questionText,
+            categoryLetter: base.categoryLetter,
+            categoryName: base.categoryName,
+            passNumber: base.passNumber,
+            askedDate: base.askedDate,
+            answeredDate: base.answeredDate,
             answerText: editedText,
-            followUpQuestions: answer.followUpQuestions,
-            source: answer.source
+            followUpQuestions: base.followUpQuestions,
+            source: base.source,
+            segments: preservedSegments
         )
         do {
             try storage.saveAnswer(updated)
             displayText = editedText
+            displaySegments = preservedSegments
             isEditing = false
             onSave()
         } catch {
