@@ -250,6 +250,34 @@ struct AnswerTests {
         #expect(parsed!.answerText == bodyEndingInRule)
     }
 
+    @Test("A stray --- in the trailing region does not pull trailing sections into the body")
+    func strayRuleInTrailingRegionIsIgnored() {
+        // A desktop markdown editor or a hand-edit could leave a bare "---" after the body's
+        // real closing separator. The parser must end the body at the closing separator that
+        // precedes the trailing sections, not at that stray rule.
+        let handEdited = """
+        # Question A1: What's your earliest memory?
+        **Category:** A (Origins) | **Pass:** 1
+        **Asked:** 2026-03-01 | **Answered:** 2026-03-01
+
+        ---
+
+        I remember the garden.
+
+        ---
+
+        **Source:** voice message (transcribed)
+
+        ---
+
+        Note to self: revisit this one.
+        """
+        let parsed = Answer.fromMarkdown(handEdited)
+        #expect(parsed != nil)
+        #expect(parsed!.answerText == "I remember the garden.")
+        #expect(parsed!.source == .voice)
+    }
+
     // MARK: - Voice Clip Segments (U4)
 
     @Test("Segments round-trip through markdown with all flags")

@@ -176,22 +176,30 @@ struct Answer {
 
         // Parse the answer body, written raw between two "---" separators. The body may
         // itself contain a line equal to "---" (a Markdown horizontal rule), so stopping at
-        // the *first* interior separator would drop the rest of the body on read — and then
-        // on the next save. The trailing sections written after the body (Follow-up
-        // Questions, Source, Voice Clips) never emit a bare "---" line, so the LAST "---" is
-        // the true closing separator. Read-side only: the written format is unchanged, so
+        // the first interior separator would drop the rest of the body on read, and then on
+        // the next save. The closing separator is the last "---" before the trailing sections
+        // (Follow-up Questions, Source, Voice Clips). Bounding the search to that region means
+        // a stray "---" a desktop editor or a hand-edit left inside a trailing section is never
+        // mistaken for the closing rule. Read-side only: the written format is unchanged, so
         // existing files and the desktop tool stay compatible.
         let contentLines = lines.count > 3 ? Array(lines.dropFirst(3)) : []
-        let separatorIndices = contentLines.indices.filter {
+        func startsTrailingSection(_ line: String) -> Bool {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed == "## Follow-up Questions Generated"
+                || trimmed == "## Voice Clips"
+                || trimmed.hasPrefix("**Source:** voice message")
+        }
+        let bodyLimit = contentLines.firstIndex(where: startsTrailingSection) ?? contentLines.count
+        let separatorIndices = (0..<bodyLimit).filter {
             contentLines[$0].trimmingCharacters(in: .whitespaces) == "---"
         }
         let bodyRange: Range<Int>?
         if let open = separatorIndices.first, let close = separatorIndices.last, close > open {
             bodyRange = (open + 1)..<close
         } else if let open = separatorIndices.first {
-            // Only one separator (malformed/truncated file): keep the old lenient behavior of
-            // taking everything after it as the body.
-            bodyRange = (open + 1)..<contentLines.count
+            // Only one separator (malformed/truncated file): take everything up to the trailing
+            // sections as the body.
+            bodyRange = (open + 1)..<bodyLimit
         } else {
             bodyRange = nil
         }
