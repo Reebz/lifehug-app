@@ -10,6 +10,10 @@ final class ModelState {
     var status: ModelStatus = .notDownloaded
     var isLoaded: Bool = false
 
+    /// Set when a download is waiting on the user's confirmation to proceed over
+    /// an expensive (cellular / hotspot) connection. Drives the LaunchView alert.
+    var pendingCellularConfirm: Bool = false
+
     /// The loaded model container, available once status == .ready.
     var modelContainer: ModelContainer? {
         downloader.modelContainer
@@ -32,6 +36,10 @@ final class ModelState {
 
     /// Called once from LaunchView's .task to set up the initial state.
     func prepareOnLaunch() async {
+        // One-time sweep of weights retired by the model-tier swap, before the
+        // on-disk checks so stale directories never influence launch routing.
+        await downloader.sweepOrphanedModels()
+
         #if targetEnvironment(simulator)
         // MLX requires a real Metal GPU — the simulator will crash during model init.
         // Skip download/load entirely and let the app run with mock LLM responses.
@@ -39,30 +47,34 @@ final class ModelState {
         isLoaded = true
         return
         #else
-        // One-time sweep of weights retired by the model-tier swap, before the
-        // cached-model check so stale directories never influence launch routing.
-        await downloader.sweepOrphanedModels()
-
-        // If any model is cached, auto-set the selection to match and load it.
-        // This handles returning users and skips the model picker.
-        if let cached = downloader.cachedModelOption {
-            ModelConfig.LLM.selectedModel = cached
+        // Route from what is actually on disk: a complete cache loads; a partial
+        // download resumes WITH progress (not the silent load path that showed a
+        // bare spinner "stuck at 0%"); nothing on disk shows the picker.
+        switch ModelDownloader.launchRoute(
+            cached: downloader.cachedModelOption,
+            incomplete: downloader.incompleteModelOption
+        ) {
+        case .loadCached(let option):
+            ModelConfig.LLM.selectedModel = option
             status = .loading
             await downloader.loadCachedModel()
             syncFromDownloader()
+            if downloader.phase == .ready { return }
+            // Load failed: files are KEPT (no auto-delete); reset to .notDownloaded
+            // so tapping Download re-verifies and resumes rather than re-downloading.
+            _ = ModelConfig.LLM.selectedModel
+            syncFromDownloader()
 
-            if downloader.phase == .ready {
-                return
-            }
-            // If loading failed, the files are KEPT (no auto-delete) and phase reset to
-            // .idle → syncFromDownloader shows .notDownloaded; tapping Download re-verifies
-            // and resumes the existing files rather than forcing a full re-download.
+        case .resumeDownload(let option):
+            ModelConfig.LLM.selectedModel = option
+            await requestDownload()
+
+        case .showPicker:
+            // Read the selection once so a legacy persisted rawValue is migrated to
+            // its tier before the download screen (or any later reader) sees it.
+            _ = ModelConfig.LLM.selectedModel
+            syncFromDownloader()
         }
-        // Not yet downloaded; stay at .notDownloaded and let user tap Download.
-        // Read the selection once so a legacy persisted rawValue is migrated to
-        // its tier before the download screen (or any later reader) sees it.
-        _ = ModelConfig.LLM.selectedModel
-        syncFromDownloader()
         #endif
     }
 
@@ -72,6 +84,49 @@ final class ModelState {
     func triggerDownload() {
         downloader.startDownload()
         startSyncingState()
+    }
+
+    /// Whether starting a download now needs the user's OK first.
+    enum DownloadGate: Equatable, Sendable {
+        case proceed
+        case confirmCellular(sizeMB: Int)
+    }
+
+    /// Pure decision: an expensive path defers to a confirmation; otherwise proceed.
+    nonisolated static func downloadGate(isExpensive: Bool, sizeMB: Int) -> DownloadGate {
+        isExpensive ? .confirmCellular(sizeMB: sizeMB) : .proceed
+    }
+
+    /// Start a download, first confirming on an expensive (cellular / hotspot)
+    /// connection so a multi-hundred-MB transfer never begins silently on data.
+    /// Used by the Download button, Try Again, and the launch resume path.
+    func requestDownload() async {
+        let expensive = await NetworkStatus.isCurrentPathExpensive()
+        applyDownloadGate(Self.downloadGate(isExpensive: expensive, sizeMB: ModelConfig.LLM.selectedModel.diskSizeMB))
+    }
+
+    /// Apply a gate decision. Separated from the async network check so it is
+    /// testable without a live connection.
+    func applyDownloadGate(_ gate: DownloadGate) {
+        switch gate {
+        case .proceed:
+            triggerDownload()
+        case .confirmCellular:
+            pendingCellularConfirm = true
+        }
+    }
+
+    /// User accepted the cellular warning — proceed with the download.
+    func confirmCellularDownload() {
+        pendingCellularConfirm = false
+        triggerDownload()
+    }
+
+    /// User declined the cellular warning — leave the files on disk for a later
+    /// Wi-Fi resume and return to the current (non-downloading) state.
+    func cancelCellularDownload() {
+        pendingCellularConfirm = false
+        syncFromDownloader()
     }
 
     /// Cancel an in-progress download.

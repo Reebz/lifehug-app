@@ -202,3 +202,136 @@ struct ModelDownloadSmokeTests {
         }
     }
 }
+
+/// Progress measurement (U1) and completeness/routing (U2). Every seam under
+/// test is a pure static that runs on the simulator — no MLX, no network.
+@Suite("ModelDownloader progress + completeness")
+@MainActor
+struct ModelDownloaderProgressTests {
+
+    /// Build a temp model repo directory containing the given relative files,
+    /// each `bytesEach` bytes. Runs body, cleans up.
+    private func withModelDir(
+        files: [String],
+        bytesEach: Int = 0,
+        _ body: (URL) throws -> Void
+    ) throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("MDProg-\(UUID().uuidString)")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        for rel in files {
+            let url = dir.appendingPathComponent(rel)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: 0x41, count: bytesEach).write(to: url)
+        }
+        try body(dir)
+    }
+
+    // MARK: - modelDirectoryBytes (U1)
+
+    @Test("Sums all blob bytes, including *.incomplete partials")
+    func sumsBytesIncludingIncomplete() throws {
+        try withModelDir(files: ["blobs/a", "blobs/b.incomplete"], bytesEach: 1000) { dir in
+            #expect(ModelDownloader.modelDirectoryBytes(dir) == 2000)
+        }
+    }
+
+    @Test("An absent directory sums to zero")
+    func absentDirZeroBytes() {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MDProg-missing-\(UUID().uuidString)")
+        #expect(ModelDownloader.modelDirectoryBytes(missing) == 0)
+    }
+
+    // MARK: - progressReadout (U1)
+
+    @Test("Maps bytes to MB and fraction against the size estimate")
+    func mapsBytesToReadout() {
+        let r = ModelDownloader.progressReadout(bytes: 1_299_500_000, diskSizeMB: 2599)
+        #expect(abs(r.fraction - 0.5) < 0.001)
+        #expect(abs(r.mb - 1299.5) < 0.5)
+    }
+
+    @Test("Clamps to 100% when real bytes exceed the size estimate")
+    func clampsOverEstimate() {
+        let r = ModelDownloader.progressReadout(bytes: 3_000_000_000, diskSizeMB: 2599)
+        #expect(r.fraction == 1.0)
+        #expect(r.mb == 2599)
+    }
+
+    @Test("Readout is non-decreasing in bytes")
+    func nonDecreasingInBytes() {
+        let lo = ModelDownloader.progressReadout(bytes: 500_000_000, diskSizeMB: 2599)
+        let hi = ModelDownloader.progressReadout(bytes: 1_500_000_000, diskSizeMB: 2599)
+        #expect(hi.fraction >= lo.fraction)
+        #expect(hi.mb >= lo.mb)
+    }
+
+    // MARK: - isModelDirComplete (U2)
+
+    @Test("A directory with no *.incomplete reports complete")
+    func completeDirNoIncomplete() throws {
+        try withModelDir(files: ["blobs/weights", "config.json"], bytesEach: 10) { dir in
+            #expect(ModelDownloader.isModelDirComplete(dir) == true)
+        }
+    }
+
+    @Test("A directory with a *.incomplete blob reports incomplete")
+    func partialDirIncomplete() throws {
+        try withModelDir(files: ["blobs/weights.incomplete"], bytesEach: 10) { dir in
+            #expect(ModelDownloader.isModelDirComplete(dir) == false)
+        }
+    }
+
+    @Test("A nested *.incomplete anywhere beneath is detected")
+    func nestedIncompleteDetected() throws {
+        try withModelDir(files: ["blobs/sub/x.incomplete", "config.json"], bytesEach: 10) { dir in
+            #expect(ModelDownloader.isModelDirComplete(dir) == false)
+        }
+    }
+
+    // MARK: - launchRoute (U2)
+
+    @Test("A complete cache routes to load")
+    func routeLoadCached() {
+        #expect(ModelDownloader.launchRoute(cached: .quality, incomplete: nil) == .loadCached(.quality))
+    }
+
+    @Test("A partial-only state routes to resume-download")
+    func routeResume() {
+        #expect(ModelDownloader.launchRoute(cached: nil, incomplete: .quality) == .resumeDownload(.quality))
+    }
+
+    @Test("Nothing on disk routes to the picker")
+    func routePicker() {
+        #expect(ModelDownloader.launchRoute(cached: nil, incomplete: nil) == .showPicker)
+    }
+}
+
+/// Cellular download gate (U3). The NWPathMonitor wrapper is device-tested; here
+/// the pure decision and its application are covered without a live connection.
+@Suite("ModelState download gate")
+@MainActor
+struct ModelStateGateTests {
+
+    @Test("A non-expensive path proceeds")
+    func gateProceeds() {
+        #expect(ModelState.downloadGate(isExpensive: false, sizeMB: 2599) == .proceed)
+    }
+
+    @Test("An expensive path defers to a cellular confirmation")
+    func gateConfirms() {
+        #expect(ModelState.downloadGate(isExpensive: true, sizeMB: 2599) == .confirmCellular(sizeMB: 2599))
+    }
+
+    @Test("Applying the cellular gate sets the confirm flag and starts no download")
+    func applyConfirmSetsFlag() {
+        let state = ModelState()
+        state.applyDownloadGate(.confirmCellular(sizeMB: 2599))
+        #expect(state.pendingCellularConfirm == true)
+        if case .downloading = state.status {
+            Issue.record("cellular confirmation must not start the download")
+        }
+    }
+}

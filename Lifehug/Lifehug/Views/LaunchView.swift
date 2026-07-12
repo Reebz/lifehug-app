@@ -32,6 +32,15 @@ struct LaunchView: View {
         .task {
             await modelState.prepareOnLaunch()
         }
+        .alert("Download on cellular?", isPresented: Binding(
+            get: { modelState.pendingCellularConfirm },
+            set: { presented in if !presented { modelState.cancelCellularDownload() } }
+        )) {
+            Button("Continue") { modelState.confirmCellularDownload() }
+            Button("Wait for Wi-Fi", role: .cancel) { modelState.cancelCellularDownload() }
+        } message: {
+            Text("\(ModelConfig.LLM.selectedModel.displayName) is a large download (\(ModelConfig.LLM.selectedModel.downloadSizeLabel)). Continue on cellular, or wait for Wi-Fi to avoid data charges.")
+        }
     }
 
     // MARK: - Header
@@ -113,7 +122,7 @@ struct LaunchView: View {
             // Download button — simplified label
             Button {
                 ModelConfig.LLM.selectedModel = selectedModel
-                modelState.triggerDownload()
+                Task { await modelState.requestDownload() }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle.fill")
@@ -247,7 +256,7 @@ struct LaunchView: View {
                 .lineSpacing(3)
 
             Button {
-                modelState.triggerDownload()
+                Task { await modelState.requestDownload() }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.clockwise")
