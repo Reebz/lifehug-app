@@ -15,3 +15,13 @@ skill/life-legacy
 .claude/
 mempalace.yaml
 .serena/
+.impeccable/
+graphify-out/
+.context/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+docs/plans/
+docs/solutions/
+docs/brainstorms/
+todos/
