@@ -6,3 +6,12 @@ config.yaml
 system/schedule.json
 system/question-bank-upstream.md
 skill/life-legacy
+
+# Xcode per-user state
+*.xcuserstate
+**/xcuserdata/
+
+# Local tooling / assistant config
+.claude/
+mempalace.yaml
+.serena/
